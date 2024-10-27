@@ -5,44 +5,87 @@ from spatialmath import SE3
 import open3d as o3d
 
 
-class Source(ABC):
+
+class ContinuousAngularDistribution(ABC):
+
+    @abstractmethod
+    def pdf(self, az: np.array, el: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def cdf_az(self, az: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def cdf_el_given_az(self, el: np.array, az: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def cdf_inv_az(self, p: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def cdf_inv_el_given_az(self, p: np.array, az: np.array) -> np.array:
+        pass
+
+    def sample(self, n_samples: int):
+        p_az = np.random.uniform(low=0, high=1, size=n_samples)
+        p_el = np.random.uniform(low=0, high=1, size=n_samples)
+
+        az = self.cdf_inv_az(p_az)
+        el = self.cdf_inv_el_given_az(p_el, az)
+
+        return np.stack((az, el), axis=-1)
+
+
+class UniformContinuousAngularDistribution(ContinuousAngularDistribution):
+
+    def __init__(self, min_az: float, max_az: float, min_el: float, max_el: float):
+        self._min_az = min_az
+        self._max_az = max_az
+        self._min_el = min_el
+        self._max_el = max_el
+
+        self._area = (max_az - min_az) * (max_el - min_el)
+
+    def pdf(self, az: np.array, el: np.array) -> np.array:
+        return np.full_like(az, fill_value=1 / self._area)
+
+    def cdf_az(self, az: np.array) -> np.array:
+        return np.clip((az - self._min_az) / (self._max_az - self._min_az), 0, 1)
+
+    def cdf_el_given_az(self, el: np.array, az: np.array) -> np.array:
+        return np.clip((el - self._min_el) / (self._max_el - self._min_el), 0, 1)
+
+    def cdf_inv_az(self, p: np.array) -> np.array:
+        return (self._max_az - self._min_az) * p + self._min_az
+
+    def cdf_inv_el_given_az(self, p: np.array, az: np.array) -> np.array:
+        return (self._max_el - self._min_el) * p + self._min_el
+
+
+class Source:
     id: str
     pose: SE3
 
-    @abstractmethod
-    def sensitivity(self, yaw: float, pitch: float) -> float:
-        pass
+    distribution: ContinuousAngularDistribution
 
-
-class OmnidirectionalSource(Source):
-
-    def __init__(self, id: str, pose: SE3, sensitivity: float):
+    def __init__(self, id, pose, distribution):
         self.id = id
         self.pose = pose
-        self._sensitivity = sensitivity
-
-    def sensitivity(self, yaw: float, pitch: float) -> float:
-        return self._sensitivity
+        self.distribution = distribution
 
 
 class Sink(ABC):
     id: str
     pose: SE3
 
-    @abstractmethod
-    def sensitivity(self, yaw: float, pitch: float) -> float:
-        pass
+    distribution: ContinuousAngularDistribution
 
-
-class OmnidirectionalSink(Source):
-
-    def __init__(self, id: str, pose: SE3, sensitivity: float):
+    def __init__(self, id, pose, distribution):
         self.id = id
         self.pose = pose
-        self._sensitivity = sensitivity
-
-    def sensitivity(self, yaw: float, pitch: float) -> float:
-        return self._sensitivity
+        self.distribution = distribution
 
 
 class Material(ABC):
