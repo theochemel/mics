@@ -14,12 +14,12 @@ ARRAY_N = 16
 sources = [
     Source(
         id="source_1",
-        pose=SE3.Tx(1.0),
+        pose=SE3(),
         distribution=UniformContinuousAngularDistribution(
             min_az=0,
-            max_az=2 * pi,
-            min_el=pi / 2,
-            max_el=pi,
+            max_az=0,
+            min_el=5 * pi / 8,
+            max_el=5 * pi / 8,
         )
     ),
     # Source(
@@ -53,9 +53,9 @@ sand_material = SimpleMaterial(
 sand_surfaces = [
     Surface(
         id=f"sand",
-        pose=SE3.Tz(-10.0),
+        pose=SE3.Rt(SO3(), np.array([2.0, 0.0, -2.0])),
         material=sand_material,
-        mesh=o3d.io.read_triangle_mesh("../assets/channel.ply"),
+        mesh=o3d.io.read_triangle_mesh("../assets/cube.ply"),
     )
 ]
 

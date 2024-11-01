@@ -4,6 +4,8 @@ from typing import Callable, Dict
 from spatialmath import SE3
 import open3d as o3d
 
+from .geometry import wrap_angle
+
 
 
 class ContinuousAngularDistribution(ABC):
@@ -62,6 +64,75 @@ class UniformContinuousAngularDistribution(ContinuousAngularDistribution):
 
     def cdf_inv_el_given_az(self, p: np.array, az: np.array) -> np.array:
         return (self._max_el - self._min_el) * p + self._min_el
+
+
+class BidirectionalReflectanceDistribution(ABC):
+
+    @abstractmethod
+    def pdf(self, az: np.array, el: np.array, incident_az_el: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def cdf_az(self, az: np.array, incident_az_el: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def cdf_el_given_az(self, el: np.array, az: np.array, incident_az_el: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def cdf_inv_az(self, p: np.array, incident_az_el: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def cdf_inv_el_given_az(self, p: np.array, az: np.array, incident_az_el: np.array) -> np.array:
+        pass
+
+    def sample(self, n_samples: int, incident_az_el: np.array):
+        p_az = np.random.uniform(low=0, high=1, size=n_samples)
+        p_el = np.random.uniform(low=0, high=1, size=n_samples)
+
+        az = self.cdf_inv_az(p_az, incident_az_el)
+        el = self.cdf_inv_el_given_az(p_el, az, incident_az_el)
+
+        return np.stack((az, el), axis=-1)
+
+
+class DiffuseBidirectionalReflectanceDistribution(BidirectionalReflectanceDistribution):
+
+    def pdf(self, az: np.array, el: np.array, incident_az_el: np.array) -> np.array:
+        return np.full_like(az, fill_value=1 / (2 * np.pi))
+
+    def cdf_az(self, az: np.array, incident_az_el: np.array) -> np.array:
+        return np.clip((az + np.pi) / (2 * np.pi), 0, 1)
+
+    def cdf_el_given_az(self, el: np.array, az: np.array, incident_az_el: np.array) -> np.array:
+        return np.clip(el / (np.pi / 2), 0, 1)
+
+    def cdf_inv_az(self, p: np.array, incident_az_el: np.array) -> np.array:
+        return (2 * np.pi) * p - np.pi
+
+    def cdf_inv_el_given_az(self, p: np.array, az: np.array, incident_az_el: np.array) -> np.array:
+        return (np.pi / 2) * p
+
+
+class SpecularBidirectionalReflectanceDistribution(BidirectionalReflectanceDistribution):
+
+    def pdf(self, az: np.array, el: np.array, incident_az_el: np.array) -> np.array:
+        raise NotImplemented
+
+    def cdf_az(self, az: np.array, incident_az_el: np.array) -> np.array:
+        raise NotImplemented
+
+    def cdf_el_given_az(self, el: np.array, az: np.array, incident_az_el: np.array) -> np.array:
+        raise NotImplemented
+
+    def cdf_inv_az(self, p: np.array, incident_az_el: np.array) -> np.array:
+        return wrap_angle(incident_az_el[:, 0] + np.pi)
+
+    def cdf_inv_el_given_az(self, p: np.array, az: np.array, incident_az_el: np.array) -> np.array:
+        return incident_az_el[:, 1]
+
 
 
 class Source:

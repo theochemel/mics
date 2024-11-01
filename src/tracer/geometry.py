@@ -1,25 +1,40 @@
 import numpy as np
 
+
+def wrap_angle(x: np.array) -> np.array:
+    return (x + np.pi) % (2 * np.pi) - np.pi
+
+
+def transform_points(a_t_bs: np.array, points_b: np.array) -> np.array:
+    points_b_h = np.concatenate((
+        points_b,
+        np.ones((points_b.shape[0], 1)),
+    ), axis=-1)
+
+    points_a_h = (a_t_bs @ points_b_h[:, :, np.newaxis]).squeeze(-1)
+
+    points_a = points_a_h[:, :3]
+
+    return points_a
+
+
+def transform_vectors(a_t_bs: np.array, vectors_b: np.array) -> np.array:
+    vectors_b_h = np.concatenate((
+        vectors_b,
+        np.zeros((vectors_b.shape[0], 1))
+    ), axis=-1)
+
+    vectors_a_h = (a_t_bs @ vectors_b_h[:, :, np.newaxis]).squeeze(-1)
+
+    vectors_a = vectors_a_h[:, :3]
+
+    return vectors_a
+
+
 def transform_rays(a_t_bs: np.array, rays_b: np.array) -> np.array:
-    ray_positions_b = rays_b[:, :3]
-    ray_directions_b = rays_b[:, 3:]
-
-    ray_positions_b_h = np.concatenate((
-        ray_positions_b,
-        np.ones((rays_b.shape[0], 1)),
-    ), axis=-1)
-
-    ray_directions_b_h = np.concatenate((
-        ray_directions_b,
-        np.zeros((rays_b.shape[0], 1)),
-    ), axis=-1)
-
-    ray_positions_a_h = (a_t_bs @ ray_positions_b_h[:, :, np.newaxis]).squeeze(-1)
-    ray_directions_a_h = (a_t_bs @ ray_directions_b_h[:, :, np.newaxis]).squeeze(-1)
-
     rays_a = np.concatenate((
-        ray_positions_a_h[:, :3],
-        ray_directions_a_h[:, :3],
+        transform_points(a_t_bs, rays_b[:, :3]),
+        transform_vectors(a_t_bs, rays_b[:,3:])
     ), axis=-1)
 
     return rays_a
@@ -33,4 +48,15 @@ def az_el_to_direction(az_el: np.array) -> np.array:
         np.cos(az) * np.sin(el),
         np.sin(az) * np.sin(el),
         np.cos(el),
+    ), axis=-1)
+
+
+def direction_to_az_el(direction: np.array) -> np.array:
+    x = direction[:, 0]
+    y = direction[:, 1]
+    z = direction[:, 2]
+
+    return np.stack((
+        np.arctan2(y, x),
+        (np.pi / 2) - np.arctan2(z, np.sqrt(x**2 + y**2))
     ), axis=-1)
