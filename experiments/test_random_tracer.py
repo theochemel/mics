@@ -16,10 +16,10 @@ sources = [
         id="source_1",
         pose=SE3(),
         distribution=UniformContinuousAngularDistribution(
-            min_az=0,
-            max_az=0,
-            min_el=5 * pi / 8,
-            max_el=5 * pi / 8,
+            min_az=-pi / 4,
+            max_az=pi / 4,
+            min_el=pi / 2,
+            max_el=pi,
         )
     ),
     # Source(
@@ -36,15 +36,15 @@ sources = [
 
 sinks = [
     Sink(
-        id=f"sink_{angle:.2f}",
-        pose=SE3.Rt(SO3(), np.array([ARRAY_RADIUS * cos(angle), ARRAY_RADIUS * sin(angle), 0])),
+        id=f"sink_{x:.3f}",
+        pose=SE3.Rt(SO3(), np.array([x, 0.0, 0.0])),
         distribution=UniformContinuousAngularDistribution(
             min_az=0,
             max_az=2 * pi,
             min_el=pi / 2,
             max_el=pi,
         )
-    ) for angle in np.linspace(0, 2 * pi, ARRAY_N + 1)[:-1]
+    ) for x in np.linspace(1.0, 2.0, ARRAY_N)
 ]
 
 sand_material = SimpleMaterial(

@@ -9,11 +9,75 @@ RAY_START_SHIFT = 1e-3
 
 
 class Path:
-    def __init__(self):
-        self._positions = []
 
-    def add_bounce(self, position):
-        self._positions.append(position)
+
+    def __init__(self):
+        self._source_id: str = None
+        self._source_position: np.array = None
+        self._sink_id: str = None
+        self._source_attenuation: float = None
+
+        self._segment_positions: [np.array] = []
+        self._segment_delays: [float] = []
+        self._segment_attenuations: [float] = []
+        self._segment_sink_visible: [np.array] = []
+        self._segment_sink_delays: [np.array] = []
+        self._segment_sink_attenuations: [np.array] = []
+        self._segment_sink_positions: [np.array] = []
+
+    def add_source(self, source_id: str, source_position: np.array, source_attenuation: float):
+        self._source_id = source_id
+        self._source_attenuation = source_attenuation
+        self._source_position = source_position
+
+    def add_segment(self, position: np.array, delay: float, attenuation: float, sink_visible: np.array, sink_positions: np.array, sink_delays: np.array, sink_attenuations: np.array):
+        self._segment_positions.append(position)
+        self._segment_delays.append(delay)
+        self._segment_attenuations.append(attenuation)
+        self._segment_sink_visible.append(sink_visible)
+        self._segment_sink_delays.append(sink_delays)
+        self._segment_sink_attenuations.append(sink_attenuations)
+        self._segment_sink_positions.append(sink_positions)
+
+    def visualization_geometry(self):
+        if len(self._segment_positions) == 0:
+            return []
+
+        path_points = np.concatenate((
+            self._source_position[np.newaxis, :],
+            self._segment_positions,
+            self._segment_sink_positions[0],
+        ), axis=0)
+
+        n_sinks = len(self._segment_sink_positions[0])
+
+        path_lines = []
+
+        path_lines.append(
+            np.stack((
+                np.arange(len(self._segment_positions)),
+                np.arange(1, len(self._segment_positions) + 1),
+            ), axis=-1)
+        )
+
+        for segment_i in range(len(self._segment_sink_visible)):
+            path_lines.append(
+                np.stack((
+                    np.full(np.sum(self._segment_sink_visible[segment_i]), 1 + segment_i), # Segment end position
+                    1 + len(self._segment_positions) + np.arange(n_sinks)[self._segment_sink_visible[segment_i]], # Sink position
+                ), axis=-1)
+            )
+
+            pass
+
+        path_lines = np.concatenate(path_lines, axis=0)
+
+        path_geometry = o3d.geometry.LineSet(
+            points=o3d.utility.Vector3dVector(path_points),
+            lines=o3d.utility.Vector2iVector(path_lines),
+        )
+
+        return [path_geometry]
 
 
 class Tracer:
@@ -23,14 +87,9 @@ class Tracer:
 
         self._n_sources = len(scene.sources)
 
-        # self._scattering_distribution = UniformContinuousAngularDistribution(
-        #     min_az=-np.deg2rad(10),
-        #     max_az=np.deg2rad(10),
-        #     min_el=pi / 2 - np.deg2rad(10),
-        #     max_el=pi / 2 + np.deg2rad(10),
-        # )
-
-        self._scattering_distribution = SpecularBidirectionalReflectanceDistribution()
+        self._scattering_distribution = DiffuseBidirectionalReflectanceDistribution()
+        self._material_attenuation = 0
+        self._c = 1500
 
 
     def trace(self, n_rays: int, n_bounces: int):
@@ -41,12 +100,6 @@ class Tracer:
         for i in range(n_bounces):
             self._propagate_rays()
 
-            pass
-
-        # Now we have all the information we need in self._rays, self._ray_path_ids, and self._path_source_ids
-        # We can reconstruct a path from each of those
-
-        self._reconstruct_paths()
 
     def _build_raycast_scene(self):
         self._raycast_scene = o3d.t.geometry.RaycastingScene()
@@ -56,9 +109,9 @@ class Tracer:
 
     def _generate_source_rays(self, n_rays: int):
         ray_sets = []
-        path_source_id_sets = []
+        paths = []
 
-        for i, source in enumerate(self._scene.sources.values()):
+        for source_i, source in enumerate(self._scene.sources.values()):
             # Pose for every ray is the same
             world_t_sources = np.array([
                 np.array(source.pose) for _ in range(n_rays)
@@ -68,13 +121,25 @@ class Tracer:
 
             ray_sets.append(rays)
 
-            path_source_id_sets.append(np.full(rays.shape[0], i))
+            ray_directions = rays[:, 3:]
+            ray_az_els = direction_to_az_el(ray_directions)
+            ray_source_attenuations = source.distribution.pdf(ray_az_els[:, 0], ray_az_els[:, 1])
+
+            for ray_i in range(len(rays)):
+                path = Path()
+                path.add_source(
+                    source_id=source.id,
+                    source_position=rays[ray_i, :3],
+                    source_attenuation=ray_source_attenuations[ray_i], # TODO: Fix attenuation here
+                )
+
+                paths.append(path)
 
         rays = np.concatenate(ray_sets, axis=0)
-        self._path_source_ids = np.concatenate(path_source_id_sets, axis=0)
 
         self._active_rays = rays
         self._rays = rays
+        self._paths = paths
 
         ray_path_ids = np.arange(rays.shape[0])
 
@@ -158,33 +223,45 @@ class Tracer:
         self._active_ray_path_ids = new_ray_path_ids
         self._ray_path_ids = np.concatenate((self._ray_path_ids, new_ray_path_ids), axis=0)
 
-    def _reconstruct_paths(self):
-        self._paths = []
+        for ray_id, ray_path_id in enumerate(new_ray_path_ids):
+            start_position = valid_rays[ray_id, :3]
+            end_position = new_rays[ray_id, :3]
 
-        for path_i in range(self._n_paths):
-            path = Path()
+            sink_positions = self._scene.sink_positions
 
-            rays = self._rays[self._ray_path_ids == path_i]
+            sink_directions = sink_positions - end_position[np.newaxis, :]
+            sink_distances = np.linalg.norm(sink_directions, axis=-1)
+            sink_directions = sink_directions / sink_distances[:, np.newaxis]
 
-            for ray in rays:
-                path.add_bounce(ray[0:3])
+            sink_rays = np.concatenate((
+                np.repeat(end_position[np.newaxis, :], sink_directions.shape[0], axis=0),
+                sink_directions,
+            ), axis=-1)
 
-            path.add_bounce(rays[-1, 0:3] + 0.1 * rays[-1, 3:6])
+            raycasts = self._raycast_scene.cast_rays(
+                o3d.core.Tensor(sink_rays, dtype=o3d.core.Dtype.Float32)
+            )
 
-            self._paths.append(path)
+            t_hit = raycasts["t_hit"].numpy()
+
+            visible = t_hit >= sink_distances
+
+            self._paths[ray_path_id].add_segment(
+                position=end_position,
+                delay=np.linalg.norm(start_position - end_position) / self._c,
+                attenuation=self._material_attenuation,
+                sink_visible=visible,
+                sink_positions=sink_positions,
+                sink_delays=sink_distances / self._c,
+                sink_attenuations=np.where(visible, 0, -np.inf), # TODO: Evaluate sink PDF here in the visible case
+            )
 
     def visualize(self):
         scene_geometries = self._scene.visualization_geometry()
 
-        path_geometries = []
+        geometries = scene_geometries
 
         for path in self._paths:
-            path_geometries.append(o3d.geometry.LineSet(
-                points=o3d.utility.Vector3dVector(np.stack(path._positions, axis=0)),
-                lines=o3d.utility.Vector2iVector(np.stack((np.arange(len(path._positions) - 1), np.arange(1, len(path._positions))), axis=1)),
-            ))
-
-        geometries = scene_geometries + path_geometries
+            geometries += path.visualization_geometry()
 
         o3d.visualization.draw_geometries(geometries)
-

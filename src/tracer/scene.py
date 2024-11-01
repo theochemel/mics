@@ -208,14 +208,14 @@ class Scene:
 
     def visualization_geometry(self):
         source_geometries = [
-            o3d.geometry.TriangleMesh.create_sphere(radius=0.001).translate(source.pose.t) for source in self.sources.values()
+            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(source.pose.t) for source in self.sources.values()
         ]
 
         for g in source_geometries:
             g.paint_uniform_color([1, 0, 0])
 
         sink_geometries = [
-            o3d.geometry.TriangleMesh.create_sphere(radius=0.001).translate(sink.pose.t) for sink in self.sinks.values()
+            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(sink.pose.t) for sink in self.sinks.values()
         ]
 
         for g in sink_geometries:
@@ -235,8 +235,6 @@ class Scene:
     def visualize(self):
         o3d.visualization.draw_geometries(self.visualization_geometry())
 
-    def save(self):
-        pass
-
-    def load(self):
-        pass
+    @property
+    def sink_positions(self):
+        return np.array([sink.pose.t for sink in self.sinks.values()])
