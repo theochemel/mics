@@ -4,14 +4,17 @@ from typing import Callable, Dict
 from spatialmath import SE3
 import open3d as o3d
 
-from .geometry import wrap_angle
-
+from .geometry import wrap_angle, amplitude_to_db, power_to_db
 
 
 class ContinuousAngularDistribution(ABC):
 
     @abstractmethod
     def pdf(self, az: np.array, el: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def pdf_max(self) -> float:
         pass
 
     @abstractmethod
@@ -39,6 +42,9 @@ class ContinuousAngularDistribution(ABC):
 
         return np.stack((az, el), axis=-1)
 
+    def attenuation_db(self, az: np.array, el: np.array) -> np.array:
+        return power_to_db(self.pdf(az, el) / self.pdf_max())
+
 
 class UniformContinuousAngularDistribution(ContinuousAngularDistribution):
 
@@ -52,6 +58,9 @@ class UniformContinuousAngularDistribution(ContinuousAngularDistribution):
 
     def pdf(self, az: np.array, el: np.array) -> np.array:
         return np.full_like(az, fill_value=1 / self._area)
+
+    def pdf_max(self) -> float:
+        return 1 / self._area
 
     def cdf_az(self, az: np.array) -> np.array:
         return np.clip((az - self._min_az) / (self._max_az - self._min_az), 0, 1)
@@ -70,6 +79,10 @@ class BidirectionalReflectanceDistribution(ABC):
 
     @abstractmethod
     def pdf(self, az: np.array, el: np.array, incident_az_el: np.array) -> np.array:
+        pass
+
+    @abstractmethod
+    def pdf_max(self, incident_az_el: np.array) -> np.array:
         pass
 
     @abstractmethod
@@ -97,11 +110,17 @@ class BidirectionalReflectanceDistribution(ABC):
 
         return np.stack((az, el), axis=-1)
 
+    def attenuation_db(self, az: np.array, el: np.array, incident_az_el: np.array) -> np.array:
+        return power_to_db(self.pdf(az, el, incident_az_el) / self.pdf_max(incident_az_el))
+
 
 class DiffuseBidirectionalReflectanceDistribution(BidirectionalReflectanceDistribution):
 
     def pdf(self, az: np.array, el: np.array, incident_az_el: np.array) -> np.array:
         return np.full_like(az, fill_value=1 / (2 * np.pi))
+
+    def pdf_max(self, incident_az_el: np.array) -> np.array:
+        return np.full(incident_az_el.shape[0], fill_value=1.0 / (2.0 * np.pi))
 
     def cdf_az(self, az: np.array, incident_az_el: np.array) -> np.array:
         return np.clip((az + np.pi) / (2 * np.pi), 0, 1)
@@ -120,6 +139,9 @@ class SpecularBidirectionalReflectanceDistribution(BidirectionalReflectanceDistr
 
     def pdf(self, az: np.array, el: np.array, incident_az_el: np.array) -> np.array:
         raise NotImplemented
+
+    def pdf_max(self, incident_az_el: np.array) -> np.array:
+        return np.full(incident_az_el.shape[0], fill_value=np.inf)
 
     def cdf_az(self, az: np.array, incident_az_el: np.array) -> np.array:
         raise NotImplemented
@@ -236,5 +258,5 @@ class Scene:
         o3d.visualization.draw_geometries(self.visualization_geometry())
 
     @property
-    def sink_positions(self):
-        return np.array([sink.pose.t for sink in self.sinks.values()])
+    def sink_poses(self):
+        return np.array([sink.pose for sink in self.sinks.values()])

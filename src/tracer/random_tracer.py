@@ -15,37 +15,37 @@ class Path:
         self._source_id: str = None
         self._source_position: np.array = None
         self._sink_id: str = None
-        self._source_attenuation: float = None
 
-        self._segment_positions: [np.array] = []
         self._segment_delays: [float] = []
-        self._segment_attenuations: [float] = []
-        self._segment_sink_visible: [np.array] = []
+
+        self._segment_hit_positions: [np.array] = []
+        self._segment_hit_attenuations: [float] = []
+
+        self._segment_sink_visibles: [np.array] = [] # [n_segments, n_sinks]
         self._segment_sink_delays: [np.array] = []
         self._segment_sink_attenuations: [np.array] = []
         self._segment_sink_positions: [np.array] = []
 
-    def add_source(self, source_id: str, source_position: np.array, source_attenuation: float):
+    def add_source(self, source_id: str, source_position: np.array):
         self._source_id = source_id
-        self._source_attenuation = source_attenuation
         self._source_position = source_position
 
-    def add_segment(self, position: np.array, delay: float, attenuation: float, sink_visible: np.array, sink_positions: np.array, sink_delays: np.array, sink_attenuations: np.array):
-        self._segment_positions.append(position)
+    def add_segment(self, delay: float, hit_position: np.array, hit_attenuation: float, sink_visible: np.array, sink_positions: np.array, sink_delays: np.array, sink_attenuations: np.array):
         self._segment_delays.append(delay)
-        self._segment_attenuations.append(attenuation)
-        self._segment_sink_visible.append(sink_visible)
+        self._segment_hit_positions.append(hit_position)
+        self._segment_hit_attenuations.append(hit_attenuation)
+        self._segment_sink_visibles.append(sink_visible)
         self._segment_sink_delays.append(sink_delays)
         self._segment_sink_attenuations.append(sink_attenuations)
         self._segment_sink_positions.append(sink_positions)
 
     def visualization_geometry(self):
-        if len(self._segment_positions) == 0:
+        if len(self._segment_hit_positions) == 0:
             return []
 
         path_points = np.concatenate((
             self._source_position[np.newaxis, :],
-            self._segment_positions,
+            self._segment_hit_positions,
             self._segment_sink_positions[0],
         ), axis=0)
 
@@ -55,16 +55,16 @@ class Path:
 
         path_lines.append(
             np.stack((
-                np.arange(len(self._segment_positions)),
-                np.arange(1, len(self._segment_positions) + 1),
+                np.arange(len(self._segment_hit_positions)),
+                np.arange(1, len(self._segment_hit_positions) + 1),
             ), axis=-1)
         )
 
-        for segment_i in range(len(self._segment_sink_visible)):
+        for segment_i in range(len(self._segment_sink_visibles)):
             path_lines.append(
                 np.stack((
-                    np.full(np.sum(self._segment_sink_visible[segment_i]), 1 + segment_i), # Segment end position
-                    1 + len(self._segment_positions) + np.arange(n_sinks)[self._segment_sink_visible[segment_i]], # Sink position
+                    np.full(np.sum(self._segment_sink_visibles[segment_i]), 1 + segment_i), # Segment end position
+                    1 + len(self._segment_hit_positions) + np.arange(n_sinks)[self._segment_sink_visibles[segment_i]], # Sink position
                 ), axis=-1)
             )
 
@@ -121,16 +121,11 @@ class Tracer:
 
             ray_sets.append(rays)
 
-            ray_directions = rays[:, 3:]
-            ray_az_els = direction_to_az_el(ray_directions)
-            ray_source_attenuations = source.distribution.pdf(ray_az_els[:, 0], ray_az_els[:, 1])
-
             for ray_i in range(len(rays)):
                 path = Path()
                 path.add_source(
                     source_id=source.id,
                     source_position=rays[ray_i, :3],
-                    source_attenuation=ray_source_attenuations[ray_i], # TODO: Fix attenuation here
                 )
 
                 paths.append(path)
@@ -214,6 +209,18 @@ class Tracer:
 
         new_rays = self._generate_scatter_rays(world_t_locals, incident_az_el, self._scattering_distribution)
 
+        hit_attenuations = self._material_attenuation + power_to_db(
+            np.sum(
+                incident_directions_local *
+                np.repeat(
+                    np.array([[0.0, 0.0, 1.0]]),
+                    incident_directions_local.shape[0],
+                    axis=0
+                ),
+                axis=-1
+            )
+        )
+
         # Move start point along ray to prevent intersection with same surface
         new_rays[:, 0:3] += RAY_START_SHIFT * new_rays[:, 3:6]
 
@@ -227,7 +234,7 @@ class Tracer:
             start_position = valid_rays[ray_id, :3]
             end_position = new_rays[ray_id, :3]
 
-            sink_positions = self._scene.sink_positions
+            sink_positions = self._scene.sink_poses[:, 0:3, 3]
 
             sink_directions = sink_positions - end_position[np.newaxis, :]
             sink_distances = np.linalg.norm(sink_directions, axis=-1)
@@ -238,6 +245,14 @@ class Tracer:
                 sink_directions,
             ), axis=-1)
 
+            sink_directions_incoming = transform_vectors(np.linalg.inv(self._scene.sink_poses), sink_directions)
+
+            sink_az_el_outgoing = direction_to_az_el(sink_directions)
+            sink_az_el_incoming = direction_to_az_el(sink_directions_incoming)
+
+            sink_attenuation_outgoing = self._scattering_distribution.attenuation_db(sink_az_el_outgoing[:, 0], sink_az_el_outgoing[:, 1], np.repeat(incident_az_el[ray_id][np.newaxis, :], sink_az_el_outgoing.shape[0], axis=0))
+            sink_attenuation_incoming = np.array([sink.distribution.attenuation_db(sink_az_el_incoming[i, 0], sink_az_el_incoming[i, 1]) for i, sink in enumerate(self._scene.sinks.values())])
+
             raycasts = self._raycast_scene.cast_rays(
                 o3d.core.Tensor(sink_rays, dtype=o3d.core.Dtype.Float32)
             )
@@ -247,13 +262,13 @@ class Tracer:
             visible = t_hit >= sink_distances
 
             self._paths[ray_path_id].add_segment(
-                position=end_position,
                 delay=np.linalg.norm(start_position - end_position) / self._c,
-                attenuation=self._material_attenuation,
+                hit_position=end_position,
+                hit_attenuation=hit_attenuations[ray_id],
                 sink_visible=visible,
                 sink_positions=sink_positions,
                 sink_delays=sink_distances / self._c,
-                sink_attenuations=np.where(visible, 0, -np.inf), # TODO: Evaluate sink PDF here in the visible case
+                sink_attenuations=np.where(visible, sink_attenuation_outgoing + sink_attenuation_incoming, -np.inf), # TODO: Evaluate sink PDF here in the visible case
             )
 
     def visualize(self):

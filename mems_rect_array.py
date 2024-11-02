@@ -6,16 +6,16 @@ from mpl_toolkits.mplot3d import Axes3D
 
 # Parameters
 c = 1500  # Speed of sound in water (m/s)
-f = 100e3  # Frequency of the sound (Hz)
+f = 80e3  # Frequency of the sound (Hz)
 l = c / f
 
 # Array parameters
-Nx = 13  # Number of elements in the x-direction
-Ny = 13 # Number of elements in the y-direction
+# Nx = 13  # Number of elements in the x-direction
+# Ny = 13 # Number of elements in the y-direction
 # dx = l / 2  # Element spacing in x-direction
 # dy = l / 2  # Element spacing in y-direction
-dx = l / 2
-dy = l / 2
+# dx = l / 2
+# dy = l / 2
 
 # print(dx, dy)
 
@@ -346,11 +346,13 @@ def plot_geometry(positions):
 
 # rs = np.linspace(0.05, 0.2, 20)
 
-spacing = 0.01
+# spacing = 0.01
 # spacing = 0.7 * l
 # print(spacing)
 
-n = 15
+spacing = l / 2.0
+
+n = 11
 
 i = np.arange(0, n)
 

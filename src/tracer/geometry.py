@@ -1,6 +1,22 @@
 import numpy as np
 
 
+def amplitude_to_db(x: np.array) -> np.array:
+    return 20.0 * np.log10(x)
+
+
+def db_to_amplitude(x: np.array) -> np.array:
+    return 10.0 ** (x / 20.0)
+
+
+def power_to_db(x: np.array) -> np.array:
+    return 10.0 * np.log10(x)
+
+
+def db_to_power(x: np.array) -> np.array:
+    return 10.0 ** (x / 10.0)
+
+
 def wrap_angle(x: np.array) -> np.array:
     return (x + np.pi) % (2 * np.pi) - np.pi
 
