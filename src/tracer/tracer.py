@@ -46,7 +46,7 @@ class Tracer:
 
         sink_nodes = {}
 
-        for i, sink in enumerate(self._scene.sinks.values()):
+        for i, sink in enumerate(self._scene.sinks):
             sink_nodes[n_nodes + i] = sink.id
 
             node_positions.append(sink.pose.t)

@@ -1,6 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Callable, Dict
+from typing import Callable, Dict, List
 from spatialmath import SE3
 import open3d as o3d
 
@@ -168,6 +168,9 @@ class Source:
         self.pose = pose
         self.distribution = distribution
 
+    def transform(self, tf: SE3):
+        self.pose = self.pose * tf
+
 
 class Sink(ABC):
     id: str
@@ -180,6 +183,8 @@ class Sink(ABC):
         self.pose = pose
         self.distribution = distribution
 
+    def transform(self, tf: SE3):
+        self.pose = self.pose * tf
 
 class Material(ABC):
 
@@ -219,25 +224,25 @@ class Surface:
 
 
 class Scene:
-    sources: Dict[str, Source]
-    sinks: Dict[str, Sink]
+    sources: List[Source]
+    sinks: List[Sink]
     surfaces: Dict[str, Surface]
 
     def __init__(self, sources: [Source], sinks: [Sink], surfaces: [Surface]):
-        self.sources = {source.id: source for source in sources}
-        self.sinks = {sink.id: sink for sink in sinks}
-        self.surfaces = {surface.id: surface for surface in surfaces}
+        self.sources = sources
+        self.sinks = sinks
+        self.surfaces = {surface.id: surface for surface in surfaces}  # todo: change to list for consistency
 
     def visualization_geometry(self):
         source_geometries = [
-            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(source.pose.t) for source in self.sources.values()
+            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(source.pose.t) for source in self.sources
         ]
 
         for g in source_geometries:
             g.paint_uniform_color([1, 0, 0])
 
         sink_geometries = [
-            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(sink.pose.t) for sink in self.sinks.values()
+            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(sink.pose.t) for sink in self.sinks
         ]
 
         for g in sink_geometries:
@@ -259,4 +264,8 @@ class Scene:
 
     @property
     def sink_poses(self):
-        return np.array([sink.pose for sink in self.sinks.values()])
+        return np.array([sink.pose for sink in self.sinks])
+
+    @property
+    def source_poses(self):
+        return np.array([source.pose for source in self.sources])

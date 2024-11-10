@@ -1,6 +1,10 @@
+from collections import defaultdict
+from typing import List
+
 import numpy as np
 from math import pi
 
+from experiments.test_tracer import source
 from tracer.scene import *
 from tracer.geometry import *
 
@@ -12,9 +16,8 @@ class Path:
 
 
     def __init__(self):
-        self._source_id: str = None
+        self.source_id: int = None
         self._source_position: np.array = None
-        self._sink_id: str = None
 
         self._segment_delays: [float] = []
 
@@ -26,8 +29,10 @@ class Path:
         self._segment_sink_attenuations: [np.array] = []
         self._segment_sink_positions: [np.array] = []
 
-    def add_source(self, source_id: str, source_position: np.array):
-        self._source_id = source_id
+        self._c = 1500.0
+
+    def add_source(self, source_id: int, source_position: np.array):
+        self.source_id = source_id
         self._source_position = source_position
 
     def add_segment(self, delay: float, hit_position: np.array, hit_attenuation: float, sink_visible: np.array, sink_positions: np.array, sink_delays: np.array, sink_attenuations: np.array):
@@ -79,6 +84,36 @@ class Path:
 
         return [path_geometry]
 
+    def get_transforms(self, source_velocity: np.array, sink_velocities: np.array) -> np.array:
+        n_sinks = len(sink_velocities)
+        n_segments = len(self._segment_hit_positions)
+
+        transforms = np.empty((n_segments, n_sinks, 3))
+
+        out_segment = self._segment_hit_positions[0] - self._source_position
+        e_out = out_segment / np.linalg.norm(out_segment)
+
+        doppler_coeff_world = 1 + e_out.dot(source_velocity) / self._c
+        total_delay = 0
+        total_attenuation = 0
+
+        for i in range(n_segments):
+            total_delay += self._segment_delays[i]
+            total_attenuation += self._segment_hit_attenuations[i] # todo: multiplying is correct here?
+
+            sink_vectors = self._segment_sink_positions[i] - self._segment_hit_positions[i]
+            sink_directions = sink_vectors / np.linalg.norm(sink_vectors, axis=1)
+            sink_velocities_proj = sink_directions.dot(sink_velocities)
+            static_delays = self._segment_sink_delays[i] + total_delay
+
+            sink_delays = static_delays / (1 - sink_velocities_proj / self._c)
+            sink_doppler_coeffs = 1 - sink_directions.dot(sink_velocities_proj)
+            sink_attenuations = total_attenuation + self._segment_sink_attenuations[i]
+
+            transforms[i, :, :] = np.transpose([sink_attenuations, sink_delays, sink_doppler_coeffs])
+
+        return transforms
+
 
 class Tracer:
 
@@ -97,6 +132,8 @@ class Tracer:
 
         self._generate_source_rays(n_rays)
 
+        self._n_bounces = n_bounces  # todo: move out of here
+
         for i in range(n_bounces):
             self._propagate_rays()
 
@@ -111,7 +148,7 @@ class Tracer:
         ray_sets = []
         paths = []
 
-        for source_i, source in enumerate(self._scene.sources.values()):
+        for source_i, source in enumerate(self._scene.sources):
             # Pose for every ray is the same
             world_t_sources = np.array([
                 np.array(source.pose) for _ in range(n_rays)
@@ -124,7 +161,7 @@ class Tracer:
             for ray_i in range(len(rays)):
                 path = Path()
                 path.add_source(
-                    source_id=source.id,
+                    source_id=source_i,
                     source_position=rays[ray_i, :3],
                 )
 
@@ -251,7 +288,7 @@ class Tracer:
             sink_az_el_incoming = direction_to_az_el(sink_directions_incoming)
 
             sink_attenuation_outgoing = self._scattering_distribution.attenuation_db(sink_az_el_outgoing[:, 0], sink_az_el_outgoing[:, 1], np.repeat(incident_az_el[ray_id][np.newaxis, :], sink_az_el_outgoing.shape[0], axis=0))
-            sink_attenuation_incoming = np.array([sink.distribution.attenuation_db(sink_az_el_incoming[i, 0], sink_az_el_incoming[i, 1]) for i, sink in enumerate(self._scene.sinks.values())])
+            sink_attenuation_incoming = np.array([sink.distribution.attenuation_db(sink_az_el_incoming[i, 0], sink_az_el_incoming[i, 1]) for i, sink in enumerate(self._scene.sinks)])
 
             raycasts = self._raycast_scene.cast_rays(
                 o3d.core.Tensor(sink_rays, dtype=o3d.core.Dtype.Float32)
@@ -280,3 +317,17 @@ class Tracer:
             geometries += path.visualization_geometry()
 
         o3d.visualization.draw_geometries(geometries)
+
+
+    def get_propagation_transforms(self, source_velocities: np.array, sink_velocities: np.array) -> np.array:
+        transforms = np.empty((len(source_velocities),
+                               len(sink_velocities),
+                               self._n_paths,
+                               self._n_bounces,
+                               3))
+
+        for i, path in enumerate(self._paths):
+            path_transforms = path.get_transforms(source_velocities[path.source_id], sink_velocities)  # [segments, sinks, :]
+            transforms[path.source_id, :, i, :, :] = path_transforms.transpose((1, 0, 2))
+
+        return transforms.reshape((len(source_velocities), len(sink_velocities), -1, 3))
