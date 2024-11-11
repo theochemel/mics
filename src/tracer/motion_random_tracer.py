@@ -1,11 +1,16 @@
+import copy
+
 import numpy as np
 import open3d as o3d
-from spatialmath import SE3, Twist3
+from matplotlib import pyplot as plt
+from scipy.signal import spectrogram
+from spatialmath import SE3, Twist3, SpatialVelocity
 
 from pathlib import Path
 from typing import List, Tuple
 
-from experiments.if_beamforming import samples
+from tqdm import tqdm
+
 from tracer.scene import *
 from tracer.geometry import *
 from tracer.random_tracer import Tracer
@@ -20,7 +25,7 @@ class Trajectory:
             while line :=  f.readline():
                 vals = line.split(',')
                 timestamp = float(vals[0])
-                pose = SE3.RPY(*vals[4:7]) * SE3.Trans(*vals[1:4])
+                pose = SE3.RPY(*map(float, vals[4:7])) * SE3.Trans(*map(float, vals[1:4]))
                 self._poses.append((timestamp, pose))
 
         self._idx = 0
@@ -31,94 +36,117 @@ class Trajectory:
     def __len__(self) -> int:
         return len(self._poses)
 
-    def __iter__(self) -> Tuple[float, SE3]:
-        self._idx = 0
-        return self._poses[self._idx]
-
+    def __iter__(self):
+        return self
 
     def __next__(self) -> Tuple[float, SE3]:
         self._idx += 1
-        return self._poses[self._idx]
+        if self._idx == len(self):
+            raise StopIteration
+        else:
+            return self._poses[self._idx]
 
 
 class MotionTracer:
 
     def __init__(self, scene: Scene):
         self._scene = scene
-        self._N_BOUNCES = 4
-        self._N_RAYS = 1000
+        self._N_BOUNCES = 1
+        self._N_RAYS = 50000
 
-    def trace_trajectory(self, traj: Trajectory):
+    def trace_trajectory(self, traj: Trajectory, wave: np.array, T_tx: float, T_rx: [float | None] = None):
         prev_timestamp, prev_pose = traj[0]
+
+        result = []
 
         for timestamp, pose in traj:
             frame: Scene = self._get_frame(pose)
+            print(pose)
+
             tracer = Tracer(frame)
             tracer.trace(self._N_RAYS, self._N_BOUNCES)
 
-            prev_t_curr = pose * prev_pose.inv()
-            twist = prev_t_curr.log() / (timestamp - prev_timestamp)
+            # tracer.visualize()
 
-            source_velocities = MotionTracer.get_elem_velocities(pose, self._scene.source_poses, twist)
-            sink_velocities = MotionTracer.get_elem_velocities(pose, self._scene.sink_poses, twist)
+            dt = timestamp - prev_timestamp
+            source_velocities = MotionTracer.get_elem_velocities(prev_pose, pose, self._scene.source_poses, dt)
+            sink_velocities = MotionTracer.get_elem_velocities(prev_pose, pose, self._scene.sink_poses, dt)
 
             transforms = tracer.get_propagation_transforms(source_velocities, sink_velocities)
+
+            # delays = transforms[:, :, :, 1].reshape(-1)
+            # delays = delays[delays > 1e-6]
+            # plt.figure(figsize=(10, 6))
+            # plt.hist(delays, bins=20, edgecolor='black')
+            # plt.title('Delays')
+            # plt.show()
+            #
+            sinks_wave = self._propagate_wave(wave, transforms, T_tx, T_rx)
+            result.append(sinks_wave)
 
             prev_timestamp = timestamp
             prev_pose = pose
 
+        return result
+
 
     @staticmethod
-    def get_elem_velocities(world_t_vehicle: SE3, world_t_elems: List[SE3], v_world: Twist3):
-        return [(world_t_vehicle * world_t_elem).inv().Ad() * v_world for world_t_elem in world_t_elems]
+    def get_elem_velocities(vehicle_prev: SE3, vehicle: SE3, vehicle_t_elems: SE3, dt: float):
+        result = []
+        for vehicle_t_elem in vehicle_t_elems:
+            dp = (vehicle_t_elem * vehicle).t - (vehicle_t_elem * vehicle_prev).t
+            result.append(dp / dt)
+        return result
 
     def _get_frame(self, transform: SE3):
-        frame = self._scene
-        for source in frame.sources.values():
-            source.transform(transform)
+        frame = copy.deepcopy(self._scene)  # todo: only copy sources and sinks
+        for source in frame.sources:
+            source.get_tf_from_world(transform)
 
-        for sink in frame.sinks.values():
-            sink.transform(transform)
+        for sink in frame.sinks:
+            sink.get_tf_from_world(transform)
 
         return frame
 
-    def _propagate_wave(self, wave: np.array, transforms: np.array, T_tx: float, T_rx: [float | None] = None):
+    def _propagate_wave(self, wave: np.array, transforms: Dict[Tuple[int, int], np.array],
+                        T_tx: float, T_rx: [float | None] = None):
         # transforms: [sources, sinks, segments*paths, 3]
         # wave: [sources, n_samples]
 
-        if T_rx == None:
+        n_sources = len(self._scene.sources)
+        n_sinks = len(self._scene.sinks)
+
+        if T_rx is None:
             T_rx = T_tx
 
-        eps = 1e-6
         # Find first and last return delays
-        min_delay = np.min(transforms[:, :, :, 1])
-        max_delay = np.max(transforms[:, :, :, 1])
+        max_delay = max([np.max(transforms_source_sink[:, 1]) for transforms_source_sink in transforms.values()])
 
-        # Find min and max attenuations
-        min_attn =  np.min(transforms[:, :, :, 0])
-
-        # Normalize delays and attenuations
-        transforms[:, :, :, 1] -= min_delay
-        transforms[:, :, :, 0] -= min_attn
+        # Find max attenuation (largest dB value) and normalize
+        max_attn = max([np.max(transforms_source_sink[:, 0]) for transforms_source_sink in transforms.values()])
+        for transforms_source_sink in transforms.values():
+            transforms_source_sink[:, 0] -= max_attn
 
         # Allocate the result array
         sources_n_samples = wave.shape[1]
         doppler_margin = 1.5
-        sinks_n_samples = (max_delay + sources_n_samples*T_tx*doppler_margin - min_delay) // T_rx
-        n_sinks = transforms.shape[1]
-        sinks_wave = np.array((n_sinks, sinks_n_samples))
+        sinks_n_samples = int((max_delay + sources_n_samples*T_tx*doppler_margin) // T_rx)
+        sinks_wave = np.zeros((n_sinks, sinks_n_samples))
 
         t_tx = np.arange(sources_n_samples) * T_tx
 
         # Multiply and add
-        for sink_i in range(n_sinks):
-            for source_i in range(transforms.shape[0]):
-                for transform_i in range(transforms.shape[2]):
-                    transform = transforms[source_i, sink_i, transform_i]
+        for sink in range(n_sinks):
+            for source in range(n_sources):
+                print(f"Source {source}, sink{sink}")
+                for transform_i in tqdm(range(len(transforms[(source, sink)]))): # todo: vectorize
+                    transform = transforms[(source, sink)][transform_i]
+                    if np.isneginf(transform[0]):
+                        continue
                     t_doppler = t_tx * transform[2]  # todo: multiply or divide?
                     t_resampled = np.arange(0, t_doppler[-1], T_rx)
-                    sink_signal = np.interp(t_resampled, t_doppler, wave[source_i])
-                    start_idx = transform[1] // T_rx
-                    sinks_wave[sink_i, start_idx:start_idx+len(sink_signal)] = sink_signal * 10**(transform[0] / 2)
+                    sink_signal = np.interp(t_resampled, t_doppler, wave[source])
+                    start_idx = int(transform[1] // T_rx)
+                    sinks_wave[sink, start_idx:start_idx+len(sink_signal)] += sink_signal * 10**(transform[0] / 2)
 
         return sinks_wave

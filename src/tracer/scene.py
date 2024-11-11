@@ -1,7 +1,7 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List
-from spatialmath import SE3
+from spatialmath import SE3, SO3
 import open3d as o3d
 
 from .geometry import wrap_angle, amplitude_to_db, power_to_db
@@ -168,8 +168,8 @@ class Source:
         self.pose = pose
         self.distribution = distribution
 
-    def transform(self, tf: SE3):
-        self.pose = self.pose * tf
+    def get_tf_from_world(self, world_t_vehicle: SE3):
+        self.pose = world_t_vehicle * self.pose
 
 
 class Sink(ABC):
@@ -183,8 +183,8 @@ class Sink(ABC):
         self.pose = pose
         self.distribution = distribution
 
-    def transform(self, tf: SE3):
-        self.pose = self.pose * tf
+    def get_tf_from_world(self, world_t_vehicle: SE3):
+        self.pose = world_t_vehicle * self.pose
 
 class Material(ABC):
 
@@ -223,6 +223,21 @@ class Surface:
         self.mesh = mesh.transform(np.array(pose))
 
 
+def create_coordinate_frame(transform: SE3 = SE3(), size: float = 0.2):
+    arrow_params = {
+        'cylinder_radius': 0.05 * size,
+        'cone_radius': 0.1 * size,
+        'cylinder_height': 0.7*size,
+        'cone_height': 0.3*size
+    }
+
+    x = o3d.geometry.TriangleMesh.create_arrow(**arrow_params).paint_uniform_color([0,1,0]).rotate(SO3.Ry(np.pi / 2), (0,0,0))
+    y = o3d.geometry.TriangleMesh.create_arrow(**arrow_params).paint_uniform_color([1,0,0]).rotate(SO3.Rx(-np.pi / 2), (0,0,0))
+    z = o3d.geometry.TriangleMesh.create_arrow(**arrow_params).paint_uniform_color([0,0,1])
+
+    return map(lambda a: a.get_tf_from_world(transform), [z])
+
+
 class Scene:
     sources: List[Source]
     sinks: List[Sink]
@@ -233,16 +248,19 @@ class Scene:
         self.sinks = sinks
         self.surfaces = {surface.id: surface for surface in surfaces}  # todo: change to list for consistency
 
+
     def visualization_geometry(self):
         source_geometries = [
-            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(source.pose.t) for source in self.sources
+            # o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2).transform(source.pose) for source in self.sources
         ]
+        for source in self.sources:
+            source_geometries.extend(create_coordinate_frame(source.pose))
 
         for g in source_geometries:
             g.paint_uniform_color([1, 0, 0])
 
         sink_geometries = [
-            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(sink.pose.t) for sink in self.sinks
+            # o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(sink.pose.t) for sink in self.sinks
         ]
 
         for g in sink_geometries:
@@ -264,8 +282,8 @@ class Scene:
 
     @property
     def sink_poses(self):
-        return np.array([sink.pose for sink in self.sinks])
+        return SE3([sink.pose for sink in self.sinks])
 
     @property
     def source_poses(self):
-        return np.array([source.pose for source in self.sources])
+        return SE3([source.pose for source in self.sources])

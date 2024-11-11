@@ -4,7 +4,6 @@ from typing import List
 import numpy as np
 from math import pi
 
-from experiments.test_tracer import source
 from tracer.scene import *
 from tracer.geometry import *
 
@@ -31,6 +30,12 @@ class Path:
 
         self._c = 1500.0
 
+    def __repr__(self):
+        return f"Segments: {self.n_segments()}, hit attn: {self._segment_hit_attenuations}"
+
+    def n_segments(self):
+        return len(self._segment_hit_positions)
+
     def add_source(self, source_id: int, source_position: np.array):
         self.source_id = source_id
         self._source_position = source_position
@@ -43,6 +48,9 @@ class Path:
         self._segment_sink_delays.append(sink_delays)
         self._segment_sink_attenuations.append(sink_attenuations)
         self._segment_sink_positions.append(sink_positions)
+
+    def get_max_hit_delay(self):
+        return sum(self._segment_delays)
 
     def visualization_geometry(self):
         if len(self._segment_hit_positions) == 0:
@@ -85,6 +93,9 @@ class Path:
         return [path_geometry]
 
     def get_transforms(self, source_velocity: np.array, sink_velocities: np.array) -> np.array:
+        if len(self._segment_hit_positions) == 0:
+            return None
+
         n_sinks = len(sink_velocities)
         n_segments = len(self._segment_hit_positions)
 
@@ -102,12 +113,12 @@ class Path:
             total_attenuation += self._segment_hit_attenuations[i] # todo: multiplying is correct here?
 
             sink_vectors = self._segment_sink_positions[i] - self._segment_hit_positions[i]
-            sink_directions = sink_vectors / np.linalg.norm(sink_vectors, axis=1)
-            sink_velocities_proj = sink_directions.dot(sink_velocities)
+            sink_directions = sink_vectors / np.linalg.norm(sink_vectors, axis=1, keepdims=True)
+            sink_velocities_proj = np.sum(sink_velocities*sink_directions, axis=1)
             static_delays = self._segment_sink_delays[i] + total_delay
 
             sink_delays = static_delays / (1 - sink_velocities_proj / self._c)
-            sink_doppler_coeffs = 1 - sink_directions.dot(sink_velocities_proj)
+            sink_doppler_coeffs = 1 - sink_velocities_proj / self._c
             sink_attenuations = total_attenuation + self._segment_sink_attenuations[i]
 
             transforms[i, :, :] = np.transpose([sink_attenuations, sink_delays, sink_doppler_coeffs])
@@ -126,6 +137,10 @@ class Tracer:
         self._material_attenuation = 0
         self._c = 1500
 
+    def sample_terminated_paths(self, N, sink_id, source_id):
+        terminated_paths = [p for p in self._paths if p.n_segments()]
+        indices = np.random.randint(len(terminated_paths), size=N)
+        return [terminated_paths[i] for i in indices]
 
     def trace(self, n_rays: int, n_bounces: int):
         self._build_raycast_scene()
@@ -271,7 +286,7 @@ class Tracer:
             start_position = valid_rays[ray_id, :3]
             end_position = new_rays[ray_id, :3]
 
-            sink_positions = self._scene.sink_poses[:, 0:3, 3]
+            sink_positions = self._scene.sink_poses.t
 
             sink_directions = sink_positions - end_position[np.newaxis, :]
             sink_distances = np.linalg.norm(sink_directions, axis=-1)
@@ -283,6 +298,7 @@ class Tracer:
             ), axis=-1)
 
             sink_directions_incoming = transform_vectors(np.linalg.inv(self._scene.sink_poses), sink_directions)
+#            sink_directions_incoming = transform_vectors(self._scene.sink_poses.inv(), sink_directions)
 
             sink_az_el_outgoing = direction_to_az_el(sink_directions)
             sink_az_el_incoming = direction_to_az_el(sink_directions_incoming)
@@ -320,14 +336,14 @@ class Tracer:
 
 
     def get_propagation_transforms(self, source_velocities: np.array, sink_velocities: np.array) -> np.array:
-        transforms = np.empty((len(source_velocities),
-                               len(sink_velocities),
-                               self._n_paths,
-                               self._n_bounces,
-                               3))
+
+        transforms = defaultdict(list)
 
         for i, path in enumerate(self._paths):
             path_transforms = path.get_transforms(source_velocities[path.source_id], sink_velocities)  # [segments, sinks, :]
-            transforms[path.source_id, :, i, :, :] = path_transforms.transpose((1, 0, 2))
+            if path_transforms is None:
+                continue
+            for sink_id in range(len(sink_velocities)):
+                transforms[(path.source_id, sink_id)].extend(path_transforms[:, sink_id, :])
 
-        return transforms.reshape((len(source_velocities), len(sink_velocities), -1, 3))
+        return {key: np.array(val) for key, val in transforms.items()}
