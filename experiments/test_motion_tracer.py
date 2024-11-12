@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 from scipy.signal import spectrogram
 from spatialmath import SE3, SO3
 
+from tracer.run_experiment import run_experiment
 from tracer.scene import *
 from tracer.random_tracer import *
 from tracer.motion_random_tracer import MotionTracer, Trajectory
@@ -77,8 +78,7 @@ scene = Scene(
 )
 
 
-motion_tracer = MotionTracer(scene)
-trajectory = Trajectory(Path('experiments/rotation.csv'))
+trajectory = Trajectory(Path('experiments/circular_path.csv'))
 
 T_tx = T_rx = 1e-6 # 1 MHz
 duration = 1e-3
@@ -89,39 +89,8 @@ k = (f_max - f_min) / duration  # Sweep rate
 instantaneous_frequency = f_min + k * tt
 chirp = np.sin(2 * np.pi * (f_min * tt + 0.5 * k * tt**2)).reshape(1, -1)
 
-wave = motion_tracer.trace_trajectory(trajectory, chirp, T_tx, T_rx)
-
-experiment_result = {
-    "n_sinks": ARRAY_N,
-    "n_sources": 1,
-    "tx_wave": chirp,
-    "rx_wave": wave,
-    "T_tx": T_tx,
-    "T_rx": T_rx,
-}
-
-with open("rotation_result.pkl", "wb") as f:
-    pickle.dump(experiment_result, f)
-
-#
-# fig, axes = plt.subplots(2, 1, figsize=(15, 6))
-#
-# ax0 = axes[0]
-# f, t, S = spectrogram(wave[0], 1 / T_tx)
-# pcm0 = ax0.pcolormesh(t, f, 10 * np.log10(S_tx), shading='gouraud', cmap='viridis')
-# fig.colorbar(pcm0, ax=ax0, label='Power/Frequency (dB/Hz)')
-# ax0.set_ylabel('Frequency (Hz)')
-# ax0.set_xlabel('Time (s)')
-# ax0.set_title('Rx0')
-#
-# ax1 = axes[1]
-# f, t, Sxx = spectrogram(wave[1], 1 / T_rx)
-# pcm1 = ax1.pcolormesh(t, f, 10 * np.log10(Sxx), shading='gouraud', cmap='viridis')
-# fig.colorbar(pcm1, ax=ax1, label='Power/Frequency (dB/Hz)')
-# ax1.set_ylabel('Frequency (Hz)')
-# ax1.set_xlabel('Time (s)')
-# ax1.set_title('Rx1')
-#
-# plt.tight_layout()
-# plt.show()
-#
+run_experiment(Path('exp_res.pkl'),
+               scene,
+               trajectory,
+               chirp,
+               T_tx)

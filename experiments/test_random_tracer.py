@@ -65,8 +65,6 @@ scene = Scene(
     surfaces=sand_surfaces,
 )
 
-# scene.visualize()
-
 tracer = Tracer(scene)
 tracer.trace(n_rays=100, n_bounces=10)
 
