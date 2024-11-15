@@ -251,16 +251,13 @@ class Scene:
 
     def visualization_geometry(self):
         source_geometries = [
-            # o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2).transform(source.pose) for source in self.sources
+            o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2).transform(source.pose) for source in self.sources
         ]
-        for source in self.sources:
-            source_geometries.extend(create_coordinate_frame(source.pose))
-
-        for g in source_geometries:
-            g.paint_uniform_color([1, 0, 0])
+        # for source in self.sources:
+            # source_geometries.extend(create_coordinate_frame(source.pose))
 
         sink_geometries = [
-            # o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(sink.pose.t) for sink in self.sinks
+            o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(sink.pose.t) for sink in self.sinks
         ]
 
         for g in sink_geometries:

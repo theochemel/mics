@@ -22,8 +22,9 @@ class SpectrogramVisualizer:
         with open(filename, "rb") as f:
             simulation_results = pickle.load(f)
 
-        self._n_sinks: int = simulation_results['n_sinks']
+        self._n_sinks: int = 2 # simulation_results['n_sinks']
         self._rx_pattern: List[np.array] = simulation_results['rx_pattern']
+        self._rx_pattern = [p[(0, -1), :] for p in self._rx_pattern]
         self._T_rx: float = simulation_results['T_rx']
 
         self._compute_spectrograms()

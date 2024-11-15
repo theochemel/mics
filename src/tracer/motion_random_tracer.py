@@ -20,7 +20,7 @@ class Trajectory:
             while line := f.readline():
                 vals = line.split(',')
                 timestamp = float(vals[0])
-                pose = SE3.RPY(*map(float, vals[4:7])) * SE3.Trans(*map(float, vals[1:4]))
+                pose = SE3.Trans(*map(float, vals[1:4])) * SE3.RPY(*map(float, vals[4:7]))
                 self._poses.append((timestamp, pose))
 
         self._idx = 0

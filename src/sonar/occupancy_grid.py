@@ -7,8 +7,7 @@ import matplotlib.pyplot as plt
 from spatialmath import SE3
 
 from sonar.phased_array import RectangularArray
-from sonar.utils import BarkerCode
-from utils import FMBarker
+from sonar.utils import BarkerCode, FMBarker
 
 
 class OccupancyGridMap:

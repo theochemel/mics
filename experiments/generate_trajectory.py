@@ -45,7 +45,7 @@ def generate_circle_coordinates(center, radius, velocity, duration, sample_rate,
             z = cz  # Constant z-coordinate
 
             # Roll, pitch, yaw (all set to 0)
-            roll = 0.0
+            roll = np.pi
             pitch = 0.0
             yaw = 0.0
 
@@ -80,8 +80,8 @@ def generate_rotation(position, axis, angular_velocity, duration, sample_rate, o
 # generate_rotation((0,0,0), 2, 150, 0.041, 1000, 'rotation.csv')
 
 # Example usage
-center_point = (0.0, 0.0, 3.0)  # Center of the circle at (x, y, z)
-radius = 5.0  # Radius of the circle in meters
+center_point = (0.0, 0.0, 2.0)  # Center of the circle at (x, y, z)
+radius = 2  # Radius of the circle in meters
 velocity = 0.1  # Linear velocity in meters per second
 duration = 300  # Duration of the movement in seconds
 sample_rate = 0.1  # Sampling rate in samples per second

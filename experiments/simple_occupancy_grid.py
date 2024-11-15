@@ -17,15 +17,15 @@ sources = [
         id="source_1",
         pose=SE3(),
         distribution=UniformContinuousAngularDistribution(
-            min_az=-pi / 4,
-            max_az=pi / 4,
-            min_el=pi / 2,
-            max_el=pi,
+            min_az=-pi,
+            max_az=pi,
+            min_el=0,
+            max_el=pi/2,
         )
     )
 ]
 
-arr = RectangularArray(10, 10, 0.075, UniformContinuousAngularDistribution(
+arr = RectangularArray(10, 10, 0.0075, UniformContinuousAngularDistribution(
     min_az=-pi, max_az=pi, min_el=0, max_el=pi/2
 ))
 
@@ -47,18 +47,15 @@ scene = Scene(
     surfaces=sand_surfaces,
 )
 
-
-trajectory = Trajectory(Path('experiments/circular_path.csv'))
+trajectory = Trajectory(Path('circular_path.csv'))
 T_tx = T_rx = 1e-6 # 1 MHz
-code = FMBarker(BarkerCode.Sequence.BARKER_7, 100_000, 110_000, T_tx, 100e-6)
+code = FMBarker(BarkerCode.Sequence.BARKER_7, 100_000, 150_000, T_tx, 1e-3)
 
 result = run_experiment(Path('exp_res.pkl'),
                         scene,
                         trajectory,
-                        code.baseband,
+                        code.baseband.reshape(1, -1),
                         T_tx,
                         T_rx,
-                        n_rays=10000)
-
-
-
+                        n_rays=10000,
+                        viz=True)

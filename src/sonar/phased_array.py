@@ -39,7 +39,7 @@ class RectangularArray:
             for iy in range(self._ny):
                 sinks.append(Sink(
                     f'sink_{ix}_{iy}',
-                    SE3.Rt(SO3(), self._elem_t[ix][iy][0], self._elem_t[ix][iy][1], 0),
+                    SE3.Rt(SO3(), [self._elem_t[ix][iy][0], self._elem_t[ix][iy][1], 0]),
                     self._ang_dist
                 ))
 

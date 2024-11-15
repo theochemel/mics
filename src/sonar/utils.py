@@ -9,7 +9,7 @@ from scipy.signal import correlate
 
 class BarkerCode(ABC):
 
-    class Sequence(Enum):
+    class Sequence:
         BARKER_2 = np.array([+1, -1])
         BARKER_3 = np.array([+1, +1, -1])
         # ...
@@ -38,7 +38,7 @@ class FMBarker:
 
 
 
-        for i, bit in code:
+        for i, bit in enumerate(code):
             shift = i * bit_samples
             baseband[shift:shift + bit_samples] = bit_high if bit == 1 else bit_low
             if bit == 1:
