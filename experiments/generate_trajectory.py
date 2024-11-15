@@ -1,6 +1,8 @@
 import csv
 import numpy as np
 
+from spatialmath import SO3
+
 
 def wrap2pi(angle):
     return np.arctan2(np.sin(angle), np.cos(angle))
@@ -45,9 +47,13 @@ def generate_circle_coordinates(center, radius, velocity, duration, sample_rate,
             z = cz  # Constant z-coordinate
 
             # Roll, pitch, yaw (all set to 0)
-            roll = 0.0
-            pitch = 0.0
-            yaw = np.arctan2(cy - y, cx - x)
+            # roll = 0.0
+            # pitch = 0.0
+            # yaw = np.arctan2(cy - y, cx - x)
+
+            world_t_vehicle = SO3.RPY(0.0, 0.0, np.arctan2(cy - y, cx - x)) # x forward, z up
+            world_t_array = world_t_vehicle @ SO3.TwoVectors(z="x", y="-z")
+            roll, pitch, yaw = world_t_array.rpy()
 
             # Write the row to the CSV file
             writer.writerow([t, x, y, z, roll, pitch, yaw])
