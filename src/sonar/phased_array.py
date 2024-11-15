@@ -45,29 +45,27 @@ class RectangularArray:
 
         return sinks
 
-    def get_directivity(self, steering: np.array, theta: np.array, k: np.array) -> np.array:
+    def get_gain(self, steering_dir: np.array, looking_dir: np.array, k: np.array) -> np.array:
         """
         Get array directivity in given direction(s) for given steering angle(s)
-        :param steering: N x 3 (steering unit vector in the array coordinate frame)
-        :param theta: M x 3 (looking angle unit vector in the array coordinate frame)
+        :param steering_dir: N x 3 (steering unit vector in the array coordinate frame)
+        :param looking_dir: M x 3 (looking angle unit vector in the array coordinate frame)
         :param k: K (angular wavenumber rad/m)
         :return: N x M x K (gain relative to isotropic source in dB)
         """
 
         # TODO: use angular distribution
 
-        n_steering = len(steering)
-        n_theta = len(theta)
+        n_steering = len(steering_dir)
+        n_theta = len(looking_dir)
         n_k = len(k)
 
         # calculate phase delays for steering
-        offsets = np.einsum('ni,xyi->nxy', steering, self._elem_t)
-        steering_phases = np.einsum('k,nxy->knxy', k, offsets) # n_k x n_steering x nx x ny
+        steering_phases = self.steer(k, steering_dir)
         steering_phases = steering_phases.reshape(*steering_phases.shape[:-2], -1) # n_k x n_steering x n_elems
 
         # calculate phase delays for looking angle
-        offsets = np.einsum('ni,xyi->nxy', theta, self._elem_t)
-        theta_phase_delays = np.einsum('k,nxy->knxy', k, offsets)  # n_theta x n_steering x nx x ny
+        theta_phase_delays = self.steer(k, looking_dir)
         theta_phase_delays = theta_phase_delays.reshape(*theta_phase_delays.shape[:-2], -1) # n_k x n_theta x n_elems
 
         # calculate phases for looking angle
@@ -79,6 +77,48 @@ class RectangularArray:
 
         return 20*np.log10(A)
 
+    def steer(self, k: np.array, steering_dir: np.array) -> np.array:
+        """
+        Compute phase delays for given steering angle(s)
+        :param k: (n_k, ) angular wavenumbers
+        :param steering_dir: (n_steering, 3) steering unit vector in the array coordinate frame
+        :return: (n_k, n_steering, nx, ny) phase delays for each element relative to the centerpoint of the array
+        """
+
+        offsets = np.einsum('ni,xyi->nxy', steering_dir, self._elem_t)
+        steering_phases = np.einsum('k,nxy->knxy', k, offsets)
+
+        return steering_phases
+
+    def beamform_receive(self, k: np.array, steering: np.array, rx_pattern: np.array, T: float) -> np.array:
+        """
+        Delay-and-sum individual element signals steering the array in given direction(s)
+        :param k: (n_k, ) angular wavenumbers
+        :param steering: (n_steering, 3) steering unit vector in the array coordinate frame
+        :param rx_pattern: (nx, ny, [t/T_rx]) wave for each sink
+        :param T: sample period
+        :return (n_k, n_steering, [t'/T_rx])
+        """
+
+        shifts = self.steer(k, steering)
+        shifts_samples = np.round(shifts / T).astype(np.int64)
+
+        front_padding = np.min(shifts_samples)
+        back_padding = np.max(shifts_samples)
+
+        t = rx_pattern.shape[2]
+        n_k = len(k)
+        n_steering = len(steering)
+
+        result = np.zeros((n_k, n_steering, front_padding + t + back_padding))
+        for i_k, k_val in enumerate(k): # TODO vectorize
+            for i_steering, steering_val in enumerate(steering):
+                for x in range(self._nx):
+                    for y in range(self._ny):
+                        d = front_padding - shifts_samples[i_k, i_steering, x, y]
+                        result[n_k, n_steering, ] += rx_pattern[x, y, d:d+t]
+
+        return result
 
 if __name__ == '__main__':
     arr = RectangularArray(8, 8, 0.0075, UniformContinuousAngularDistribution)
@@ -108,7 +148,7 @@ if __name__ == '__main__':
     z = np.sin(steering_el)
     steering = np.array([[x, y, z]])
 
-    dir = arr.get_directivity(steering, theta, np.array([k]))
+    dir = arr.get_gain(steering, theta, np.array([k]))
 
     fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, projection='3d')

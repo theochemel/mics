@@ -30,3 +30,5 @@ def run_experiment(output_file: Path,
 
     with open(output_file, "wb") as f:
         pickle.dump(experiment_result, f)
+
+    return experiment_result
