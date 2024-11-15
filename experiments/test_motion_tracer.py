@@ -14,58 +14,53 @@ from tracer.random_tracer import *
 from tracer.motion_random_tracer import MotionTracer, Trajectory
 from pathlib import Path
 
-ARRAY_RADIUS = 0.025
-ARRAY_N = 2
-
 sources = [
     Source(
         id="source_1",
         pose=SE3(),
         distribution=UniformContinuousAngularDistribution(
-            min_az=-pi,
-            max_az=pi,
-            min_el=pi / 2,
+            min_az=-pi / 2,
+            max_az=pi / 2,
+            min_el=0,
             max_el=pi,
         )
     ),
-    # Source(
-    #     id="source_2",
-    #     pose=SE3.Tx(-1.0) @ SE3.Rx(pi),
-    #     distribution=UniformContinuousAngularDistribution(
-    #         min_az=0,
-    #         max_az=pi,
-    #         min_el=0,
-    #         max_el=pi / 4,
-    #     )
-    # ),
 ]
+
+c = 1500
+f = 200e3
+l = c / f
+
+spacing = l / 2
+N = 4
+
+array_x = spacing * np.arange(N) - (spacing * (N - 1) / 2)
+array_y = spacing * np.arange(N) - (spacing * (N - 1) / 2)
+
+array_x, array_y = np.meshgrid(array_x, array_y, indexing="xy")
+array_x = array_x.flatten()
+array_y = array_y.flatten()
 
 sinks = [
     Sink(
-        id=f"sink_{x:.3f}",
-        pose=SE3.Tx(x),
+        id=f"sink_i",
+        pose=SE3.Rt(SO3(), np.array([0.0, array_x[i], array_y[i]])),
         distribution=UniformContinuousAngularDistribution(
             min_az=-pi,
             max_az=pi,
             min_el=pi / 2,
             max_el=pi,
         )
-    ) for x in [-1, 1]
+    ) for i in range(len(array_x))
 ]
 
 sand_material = SimpleMaterial(
     absorption=0.9,
 )
 sand_surfaces = [
-    # Surface(
-    #     id=f"sand0",
-    #     pose=SE3.Rt(SO3(), np.array([0.0, 0.0, 0.0])),
-    #     material=sand_material,
-    #     mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
-    # ),
     Surface(
         id=f"sand1",
-        pose=SE3.Rt(SO3(), np.array([-15.0, 0.0, -1.0])),
+        pose=SE3.Rt(SO3(), np.array([10.0, 0.0, 0.0])),
         material=sand_material,
         mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
     ),
@@ -77,6 +72,7 @@ scene = Scene(
     surfaces=sand_surfaces,
 )
 
+# scene.visualize()
 
 trajectory = Trajectory(Path('experiments/circular_path.csv'))
 

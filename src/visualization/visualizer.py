@@ -55,9 +55,9 @@ class SpectrogramVisualizer:
             ax.clear()
             pcm = ax.pcolormesh(t, f, 10 * np.log10(S), shading='gouraud', cmap='viridis')
 
-            if self._colorbars[i]:
-                self._colorbars[i].remove()
-            self._colorbars[i] = self._fig.colorbar(pcm, ax=ax, label='Power/Frequency (dB/Hz)')
+            # if self._colorbars[i]:
+            #     self._colorbars[i].remove()
+            # self._colorbars[i] = self._fig.colorbar(pcm, ax=ax, label='Power/Frequency (dB/Hz)')
             ax.set_ylabel('Frequency (Hz)')
             ax.set_xlabel('Time (s)')
             ax.set_title(f'Rx{i}')

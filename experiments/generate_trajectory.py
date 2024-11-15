@@ -47,43 +47,18 @@ def generate_circle_coordinates(center, radius, velocity, duration, sample_rate,
             # Roll, pitch, yaw (all set to 0)
             roll = 0.0
             pitch = 0.0
-            yaw = 0.0
+            yaw = np.arctan2(cy - y, cx - x)
 
             # Write the row to the CSV file
             writer.writerow([t, x, y, z, roll, pitch, yaw])
 
     print(f"Data saved to {output_file}")
 
-
-def generate_rotation(position, axis, angular_velocity, duration, sample_rate, output_file):
-    x, y, z = position
-    num_samples = int(duration * sample_rate)
-    timestamps = np.linspace(0, duration, num_samples)
-    with open(output_file, mode='w', newline='') as file:
-        writer = csv.writer(file)
-        theta = 0
-        for t in timestamps:
-            theta = wrap2pi(angular_velocity * t)
-            roll = pitch = yaw = 0
-            if axis == 0:
-                roll = theta
-            elif axis == 1:
-                pitch = theta
-            elif axis == 2:
-                yaw = theta
-
-            writer.writerow([t, x, y, z, roll, pitch, yaw])
-
-    print('done')
-
-
-# generate_rotation((0,0,0), 2, 150, 0.041, 1000, 'rotation.csv')
-
 # Example usage
-center_point = (0.0, 0.0, 3.0)  # Center of the circle at (x, y, z)
-radius = 5.0  # Radius of the circle in meters
+center_point = (10.0, 0.0, 0.0)  # Center of the circle at (x, y, z)
+radius = 10.0  # Radius of the circle in meters
 velocity = 0.1  # Linear velocity in meters per second
-duration = 300  # Duration of the movement in seconds
+duration = 600  # Duration of the movement in seconds
 sample_rate = 0.1  # Sampling rate in samples per second
 output_csv = "circular_path.csv"
 

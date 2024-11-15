@@ -12,12 +12,13 @@ def run_experiment(output_file: Path,
                    T_tx: float,
                    T_rx: [float | None] = None,
                    n_bounces: int = 1,
-                   n_rays: int = 10000):
+                   n_rays: int = 10000,
+                   visualize: bool = False):
     if T_rx is None:
         T_rx = T_tx
 
     motion_tracer = MotionTracer(scene, n_bounces, n_rays)
-    rx_pattern = motion_tracer.trace_trajectory(trajectory, tx_pattern, T_tx, T_rx)
+    rx_pattern = motion_tracer.trace_trajectory(trajectory, tx_pattern, T_tx, T_rx, visualize=visualize)
 
     experiment_result = {
         "n_sinks": len(scene.sinks),
