@@ -19,8 +19,9 @@ class Trajectory:
         with open(str(trajectory_file), 'r') as f:
             while line := f.readline():
                 vals = line.split(',')
-                timestamp = float(vals[0])
-                pose = SE3.RPY(*map(float, vals[4:7])) * SE3.Trans(*map(float, vals[1:4]))
+                vals = list(map(float, vals))
+                timestamp = vals[0]
+                pose = SE3.Rt(SO3.RPY(vals[4:7]), vals[1:4])
                 self._poses.append((timestamp, pose))
 
         self._idx = 0

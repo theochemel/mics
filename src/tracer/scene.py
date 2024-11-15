@@ -223,21 +223,6 @@ class Surface:
         self.mesh = mesh.transform(np.array(pose))
 
 
-def create_coordinate_frame(transform: SE3 = SE3(), size: float = 0.2):
-    arrow_params = {
-        'cylinder_radius': 0.05 * size,
-        'cone_radius': 0.1 * size,
-        'cylinder_height': 0.7*size,
-        'cone_height': 0.3*size
-    }
-
-    x = o3d.geometry.TriangleMesh.create_arrow(**arrow_params).paint_uniform_color([0,1,0]).rotate(SO3.Ry(np.pi / 2), (0,0,0))
-    y = o3d.geometry.TriangleMesh.create_arrow(**arrow_params).paint_uniform_color([1,0,0]).rotate(SO3.Rx(-np.pi / 2), (0,0,0))
-    z = o3d.geometry.TriangleMesh.create_arrow(**arrow_params).paint_uniform_color([0,0,1])
-
-    return map(lambda a: a.get_tf_from_world(transform), [z])
-
-
 class Scene:
     sources: List[Source]
     sinks: List[Sink]
@@ -251,20 +236,12 @@ class Scene:
 
     def visualization_geometry(self):
         source_geometries = [
-            # o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2).transform(source.pose) for source in self.sources
+            o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1).transform(source.pose) for source in self.sources
         ]
-        for source in self.sources:
-            source_geometries.extend(create_coordinate_frame(source.pose))
-
-        for g in source_geometries:
-            g.paint_uniform_color([1, 0, 0])
 
         sink_geometries = [
-            # o3d.geometry.TriangleMesh.create_sphere(radius=0.01).translate(sink.pose.t) for sink in self.sinks
+            o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1).transform(sink.pose) for sink in self.sinks
         ]
-
-        for g in sink_geometries:
-            g.paint_uniform_color([0, 0, 1])
 
         surface_geometries = [
             surface.mesh for surface in self.surfaces.values()
