@@ -27,6 +27,7 @@ def run_experiment(output_file: Path,
         "rx_pattern": rx_pattern,
         "T_tx": T_tx,
         "T_rx": T_rx,
+        "trajectory": trajectory,
     }
 
     with open(output_file, "wb") as f:

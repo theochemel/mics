@@ -4,7 +4,13 @@ from enum import Enum
 import numpy as np
 from numpy import pi
 from scipy.signal import correlate
+from spatialmath import SE3
 
+
+def transform_grid(t: SE3, g: np.array):
+    nx, ny, nz, _ = g.shape
+    r = t * g.reshape((-1, 3)).T
+    return r.T.reshape((nx, ny, nz, 3))
 
 
 class BarkerCode(ABC):

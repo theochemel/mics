@@ -7,6 +7,7 @@ import numpy as np
 from scipy.signal import spectrogram
 from tqdm import tqdm
 
+from sonar.occupancy_grid import OccupancyGridMap
 
 
 class SpectrogramVisualizer:
@@ -79,6 +80,39 @@ class SpectrogramVisualizer:
             self._index = (self._index - 1) % len(self._spectrograms)
             self._update_plot()
 
+class OccupancyGridVisualizer:
+
+    def __init__(self, map: OccupancyGridMap):
+        self._map = map
+
+    def visualize(self):
+        # Create a figure for 3D plotting
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Generate voxel positions
+        x, y, z = np.indices(self.shape)
+
+        # Set the condition for where to draw voxels
+        filled = data > 0.1  # Change the threshold to show/hide voxels
+
+        # Define colors based on the data values (e.g., grayscale)
+        colors = np.empty(filled.shape + (4,), dtype=np.float32)
+        colors[..., 0] = data  # R channel
+        colors[..., 1] = data  # G channel
+        colors[..., 2] = data  # B channel
+        colors[..., 3] = data  # Alpha channel (transparency)
+
+        # Plot voxels
+        ax.voxels(filled, facecolors=colors, edgecolor='k')
+
+        # Set labels
+        ax.set_xlabel('X axis')
+        ax.set_ylabel('Y axis')
+        ax.set_zlabel('Z axis')
+
+        # Show the plot
+        plt.show()
 
 if __name__ == '__main__':
     parser = ArgumentParser()

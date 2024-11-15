@@ -27,6 +27,7 @@ class RectangularArray:
         self._nx = nx
         self._ny = ny
         self._spacing = spacing
+        self._C = 1500
 
     @property
     @cache
@@ -69,8 +70,10 @@ class RectangularArray:
         theta_phase_delays = theta_phase_delays.reshape(*theta_phase_delays.shape[:-2], -1) # n_k x n_theta x n_elems
 
         # calculate phases for looking angle
+        print('theta phases')
         theta_phases = theta_phase_delays[:, :, np.newaxis, :] - steering_phases[:, np.newaxis, :, :]
 
+        print('summing')
         A = np.sqrt(
             np.sum(np.sin(theta_phases), axis=-1)**2 + np.sum(np.cos(theta_phases), axis=-1)**2
         )
@@ -100,10 +103,12 @@ class RectangularArray:
         :return (n_k, n_steering, [t'/T_rx])
         """
 
-        shifts = self.steer(k, steering)
-        shifts_samples = np.round(shifts / T).astype(np.int64)
+        phase_shifts = self.steer(k, steering)
+        sec_per_rad = 1 / (k * self._C)
+        delays = phase_shifts * sec_per_rad[:, np.newaxis, np.newaxis, np.newaxis]
+        shifts_samples = np.round(delays / T).astype(np.int64)
 
-        front_padding = np.min(shifts_samples)
+        front_padding = np.abs(np.min(shifts_samples))
         back_padding = np.max(shifts_samples)
 
         t = rx_pattern.shape[2]
@@ -115,10 +120,19 @@ class RectangularArray:
             for i_steering, steering_val in enumerate(steering):
                 for x in range(self._nx):
                     for y in range(self._ny):
-                        d = front_padding - shifts_samples[i_k, i_steering, x, y]
-                        result[n_k, n_steering, ] += rx_pattern[x, y, d:d+t]
+                        d = front_padding + shifts_samples[i_k, i_steering, x, y]
+                        result[i_k, i_steering, d:d+t] += rx_pattern[x, y, :]
+
 
         return result
+
+    @property
+    def nx(self):
+        return self._nx
+
+    @property
+    def ny(self):
+        return self._nx
 
 if __name__ == '__main__':
     arr = RectangularArray(8, 8, 0.0075, UniformContinuousAngularDistribution)

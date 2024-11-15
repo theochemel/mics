@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from spatialmath import SE3
 
 from sonar.phased_array import RectangularArray
-from sonar.utils import BarkerCode, FMBarker
+from sonar.utils import BarkerCode, FMBarker, transform_grid
 
 
 class OccupancyGridMap:
@@ -26,11 +26,11 @@ class OccupancyGridMap:
     @functools.cached_property
     def _grid_coordinates(self):
         nx, ny, nz = self._map.shape
-        x = np.linspace(0, nx)*self._size
-        y = np.linspace(0, ny)*self._size
-        z = np.linspace(0, nz)*self._size
+        x = np.arange(nx)*self._size
+        y = np.arange(ny)*self._size
+        z = np.arange(nz)*self._size
         grid_local = np.transpose(np.meshgrid(x, y, z))
-        world_t_grid = self._world_t_map.inv() * grid_local
+        world_t_grid = transform_grid(self._world_t_map.inv(), grid_local)
         return world_t_grid
 
     def add_measurement(self,
@@ -45,8 +45,8 @@ class OccupancyGridMap:
 
         # compute point locations relative to array and corresponding delays
         world_t_grid = self._grid_coordinates
-        vehicle_t_grid = world_t_vehicle.inv() * world_t_grid
-        grid_distances = np.linalg.norm(vehicle_t_grid, -1)
+        vehicle_t_grid = transform_grid(world_t_vehicle.inv(), world_t_grid)
+        grid_distances = np.linalg.norm(vehicle_t_grid, axis=3)
         grid_delays = 2 * grid_distances / self._C
         grid_delays_samples = np.round(grid_delays / T).astype(np.int64)
 
@@ -68,15 +68,20 @@ class OccupancyGridMap:
 
         # compute array gain for every point for every steering angle
         # TODO: Using only f_low. Better to compute correlations and gains for f_high and f_low separately
-        looking_dir = vehicle_t_grid / grid_distances
+        looking_dir = vehicle_t_grid / grid_distances[..., np.newaxis]
         gains = self._array.get_gain(steering_dir, looking_dir.reshape(-1, 3), np.array([f_low]))  # TODO: check reshape
+        print('done')
         nx, ny, nz, _ = world_t_grid.shape
-        gains = np.reshape((n_steering, nx, ny, nz))
+        gains = gains.reshape((n_steering, nx, ny, nz))
 
-        grid_delays_samples = np.clip(grid_delays_samples, 0, correlation.shape[1])
+        grid_delays_samples = np.clip(grid_delays_samples, 0, correlation.shape[1] - 1)
 
         for i_steering in range(correlation.shape[0]):
+            print(i_steering)
             self._map += 2*np.log(grid_distances)
             self._map += gains[i_steering] / 20
             self._map += correlation[i_steering][grid_delays_samples]
 
+    @property
+    def map(self):
+        return self._map

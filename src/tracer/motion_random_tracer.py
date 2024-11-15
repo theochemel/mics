@@ -129,7 +129,7 @@ class MotionTracer:
         # Multiply and add
         for sink in range(n_sinks):
             for source in range(n_sources):
-                print(f"Source {source}, sink{sink}")
+                # print(f"Source {source}, sink{sink}")
                 for transform_i in tqdm(range(len(transforms[(source, sink)]))):  # todo: vectorize
                     transform = transforms[(source, sink)][transform_i]
                     if np.isneginf(transform[0]):
