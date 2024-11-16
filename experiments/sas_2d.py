@@ -30,9 +30,9 @@ grid = np.array(np.meshgrid(xx, yy)).T
 
 vals = np.zeros((nx, ny), dtype=np.complex64)
 
-targets = np.empty((60, 2))
-for i in range(0, 60):
-    ang = i * np.pi / 30
+targets = np.empty((10, 2))
+for i in range(0, 10):
+    ang = i * np.pi / 5
     targets[i] = np.array([np.cos(ang)*2+5, np.sin(ang)*2 + 5])
 
 array = np.arange(array_n) * array_spacing
