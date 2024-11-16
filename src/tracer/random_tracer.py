@@ -90,6 +90,11 @@ class Path:
             lines=o3d.utility.Vector2iVector(path_lines),
         )
 
+        if len(self._segment_hit_positions) > 1:
+            path_geometry.paint_uniform_color((0, 0, 1.0))
+        else:
+            path_geometry.paint_uniform_color((0.9, 0.9, 0.9))
+
         return [path_geometry]
 
     def get_transforms(self, source_velocity: np.array, sink_velocities: np.array) -> np.array:

@@ -247,6 +247,9 @@ class Scene:
             surface.mesh for surface in self.surfaces.values()
         ]
 
+        for surface_geometry in surface_geometries:
+            surface_geometry.paint_uniform_color((1.0, 0.0, 0.0))
+
         geometries = source_geometries + sink_geometries + surface_geometries
 
         for geometry in geometries:
