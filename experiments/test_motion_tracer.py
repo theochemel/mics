@@ -19,8 +19,8 @@ sources = [
         id="source_1",
         pose=SE3(),
         distribution=UniformContinuousAngularDistribution(
-            min_az=-pi / 2,
-            max_az=pi / 2,
+            min_az=-pi,
+            max_az=pi,
             min_el=0,
             max_el=pi,
         )
@@ -44,11 +44,11 @@ array_y = array_y.flatten()
 sinks = [
     Sink(
         id=f"sink_i",
-        pose=SE3.Rt(SO3(), np.array([0.0, array_x[i], array_y[i]])),
+        pose=SE3.Rt(SO3(), np.array([array_x[i], array_y[i], 0])),
         distribution=UniformContinuousAngularDistribution(
             min_az=-pi,
             max_az=pi,
-            min_el=pi / 2,
+            min_el=0,
             max_el=pi,
         )
     ) for i in range(len(array_x))
@@ -89,4 +89,5 @@ run_experiment(Path('exp_res.pkl'),
                scene,
                trajectory,
                chirp,
-               T_tx)
+               T_tx,
+               visualize=True)
