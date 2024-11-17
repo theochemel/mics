@@ -63,6 +63,9 @@ class OccupancyGridMap:
 
         self._map += psi
 
+    def get_map(self):
+        return self._map
+
 
 if __name__ == "__main__":
     dev = torch.device('cuda')

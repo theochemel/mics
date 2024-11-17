@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 from enum import Enum
 
 import numpy as np
@@ -17,8 +17,46 @@ class BarkerCode(ABC):
         # ...
 
     @abstractmethod
+    @deprecated
     def correlate(self, signal: np.array) -> np.array:
         ...
+
+    @abstractmethod
+    @property
+    def carrier(self) -> float:
+        ...
+
+    @abstractmethod
+    @property
+    def baseband(self) -> np.array:
+        ...
+
+
+class PMBarker(BarkerCode):
+
+    def __init__(self, code: np.array, f, T_sample, T_bit):
+        result_samples = int(T_bit * len(code) / T_sample)
+        bit_samples = int(T_bit / T_sample)
+        baseband = np.zeros((result_samples,))
+        tt = np.arange(0, bit_samples) * T_sample
+        omega = 2 * pi * f
+        bit_high = np.cos(tt * omega)
+        bit_low = np.sin(tt * omega)
+        for i, bit in code:
+            shift = i * bit_samples
+            baseband[shift:shift + bit_samples] = bit_high if bit == 1 else bit_low
+        self._baseband = baseband
+        self._carrier = f
+
+    def correlate(self, signal: np.array) -> np.array:
+        return correlate(signal, self._baseband, mode='valid')
+
+    def carrier(self) -> float:
+        return self._carrier
+
+    @property
+    def baseband(self) -> np.array:
+        return self._baseband
 
 
 class FMBarker:
@@ -35,8 +73,6 @@ class FMBarker:
         omega_high, omega_low = 2 * pi * f_high, 2 * pi * f_low
         bit_high = np.cos(tt * omega_high)
         bit_low = np.cos(tt * omega_low)
-
-
 
         for i, bit in code:
             shift = i * bit_samples
@@ -70,3 +106,11 @@ class FMBarker:
     @property
     def baseband(self) -> np.array:
         return self._baseband
+
+
+def az_el_to_direction_grid(az, el):
+    grid = np.transpose(np.meshgrid(az, el)).reshape(-1, 2)
+    x = np.cos(grid[0]) * np.cos(grid[1])
+    y = np.sin(grid[0]) * np.cos(grid[1])
+    z = np.sin(grid[1])
+    return np.transpose((x, y, z))
