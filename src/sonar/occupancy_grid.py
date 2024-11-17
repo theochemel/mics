@@ -5,79 +5,67 @@ import numpy as np
 from numpy import pi
 import matplotlib.pyplot as plt
 from spatialmath import SE3
-
-from sonar.phased_array import RectangularArray
-from sonar.utils import BarkerCode
-from utils import FMBarker
-
+import torch
+import torch.nn.functional as F
 
 class OccupancyGridMap:
 
     def __init__(self, x: int, y: int, z: int, size: float,
                  world_t_map: SE3,
-                 code: BarkerCode,
-                 array: RectangularArray):
-        self._map = np.zeros((x, y, z), dtype=np.float64)
+                 device: torch.device):
+        self._map = torch.zeros([x, y, z], dtype=torch.complex64, device=device)
         self._size = size
         self._world_t_map = world_t_map
         self._C = 1500
-        self._code = code
-        self._array = array
+        self._device = device
 
     @functools.cached_property
-    def _grid_coordinates(self):
+    def _world_t_grid(self):
         nx, ny, nz = self._map.shape
-        x = np.linspace(0, nx)*self._size
-        y = np.linspace(0, ny)*self._size
-        z = np.linspace(0, nz)*self._size
-        grid_local = np.transpose(np.meshgrid(x, y, z))
-        world_t_grid = self._world_t_map.inv() * grid_local
+        x = torch.linspace(0, nx-1, nx, device=self._device, dtype=torch.double) * self._size
+        y = torch.linspace(0, ny-1, ny, device=self._device, dtype=torch.double) * self._size
+        z = torch.linspace(0, nz-1, nz, device=self._device, dtype=torch.double) * self._size
+        yy, xx, zz = torch.meshgrid(y, x, z, indexing='ij')
+        grid_local = torch.stack([xx, yy, zz, torch.ones_like(xx)], dim=-1)  # Shape: (ny, nx, nz, 4)
+        grid_local_flat = grid_local.reshape(-1, 4)
+        world_t_map_t = torch.tensor(np.array(self._world_t_map), device=self._device)
+        world_t_grid_flat = (world_t_map_t @ grid_local_flat.T).T
+        world_t_grid = world_t_grid_flat.reshape(ny, nx, nz, 4)
         return world_t_grid
 
     def add_measurement(self,
-                        rx_pattern: np.array,
-                        T: float,
-                        steering_dir: np.array,
-                        world_t_vehicle: SE3,
-                        barker_code: np.array,
-                        barker_frequencies: Tuple[float, float],
-                        T_bit: float,
-                        receive):
+                        phi,
+                        k: float,
+                        directivity: torch.Tensor,
+                        world_t_array: SE3):
 
-        # compute point locations relative to array and corresponding delays
-        world_t_grid = self._grid_coordinates
-        vehicle_t_grid = world_t_vehicle.inv() * world_t_grid
-        grid_distances = np.linalg.norm(vehicle_t_grid, -1)
-        grid_delays = 2 * grid_distances / self._C
-        grid_delays_samples = np.round(grid_delays / T).astype(np.int64)
+        array_t_world = world_t_array.inv()
+        array_t_world_t = torch.tensor(np.array(array_t_world), device=self._device)
 
-        # compute signals for each element
-        f_low, f_high = barker_frequencies
-        k_low = 2*pi * f_low / self._C
-        k_high = 2*pi * f_high / self._C
-        signals = self._array.beamform_receive(np.array([k_low, k_high]), steering_dir, rx_pattern, T)
+        array_t_grid = (array_t_world_t @ self._world_t_grid.reshape((-1, 4)).T).T
+        array_t_grid = array_t_grid.reshape(self._world_t_grid.shape)
+        del array_t_world_t
 
-        # correlate with barker code
-        signals = np.transpose(signals, (1, 0, 2))  # (n_steering, n_k, n_samples)
-        correlation = []
-        n_steering = signals.shape[0]
-        for i_steering in range(n_steering):
-            correlation.append(self._code.correlate(signals[i_steering]))
-        correlation = np.array(correlation)
+        array_t_grid_norm = array_t_grid[..., :3].norm(dim=-1)
+        array_t_grid_unit = array_t_grid / array_t_grid_norm
+        del array_t_grid
 
-        # TODO: threshold intensity
+        az = torch.atan2(array_t_grid_unit[..., 1], array_t_grid_unit[..., 0])
+        el = torch.arcsin(array_t_grid_unit[..., 2])
+        del array_t_grid_unit
 
-        # compute array gain for every point for every steering angle
-        # TODO: Using only f_low. Better to compute correlations and gains for f_high and f_low separately
-        looking_dir = vehicle_t_grid / grid_distances
-        gains = self._array.get_gain(steering_dir, looking_dir.reshape(-1, 3), np.array([f_low]))  # TODO: check reshape
-        nx, ny, nz, _ = world_t_grid.shape
-        gains = np.reshape((n_steering, nx, ny, nz))
+        directivity_lookup = torch.cat((az, el), dim=-1).flatten(0, 2).reshape((1, 1, -1, 2))
+        directivity = directivity.reshape((1, 1) + directivity.shape)
+        gain = F.grid_sample(directivity, directivity_lookup)[0, 0, 0, :]
+        gain = gain.unflatten(0, self._world_t_grid.shape[:3])
 
-        grid_delays_samples = np.clip(grid_delays_samples, 0, correlation.shape[1])
+        psi = phi * torch.exp(-2j * np.pi * k * array_t_grid_norm) * gain * array_t_grid_norm**2
 
-        for i_steering in range(correlation.shape[0]):
-            self._map += 2*np.log(grid_distances)
-            self._map += gains[i_steering] / 20
-            self._map += correlation[i_steering][grid_delays_samples]
+        self._map += psi
 
+
+if __name__ == "__main__":
+    dev = torch.device('cuda')
+    ogm = OccupancyGridMap(100, 100, 100, 0.1, SE3(), dev)
+    gc = ogm._world_t_grid
+    print(gc.shape)
