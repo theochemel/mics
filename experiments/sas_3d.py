@@ -1,40 +1,68 @@
 import pickle
 
 import numpy as np
+from matplotlib import pyplot as plt
 from numpy import pi
 import torch
 from scipy.signal import correlate, cheby1, sosfilt
 from spatialmath import SE3, SO3
+from tqdm import tqdm
 
 from sonar.occupancy_grid import OccupancyGridMap
 from sonar.phased_array import RectangularArray
 from sonar.utils import BarkerCode, az_el_to_direction_grid
 from tracer.motion_random_tracer import Trajectory
+from tracer.scene import Surface, SimpleMaterial, Scene
 
-filename = 'test.pkl'
+from visualization.visualize_map import np_to_voxels, plot_slices_with_colormap, SliceViewer
+import open3d as o3d
+
+filename = 'exp_res.pkl'
 
 with open(filename, "rb") as f:
     simulation_results = pickle.load(f)
 
 n_sinks = simulation_results['n_sinks']
 rx_pattern = simulation_results['rx_pattern']
+code: BarkerCode = simulation_results['tx_pattern']
 T_rx = simulation_results['T_rx']
 T_tx = simulation_results['T_tx']
 trajectory: Trajectory = simulation_results['trajectory']
 array: RectangularArray = simulation_results['array']
-code: BarkerCode = simulation_results['code']
 C = simulation_results['C']
+
+sand_material = SimpleMaterial(
+    absorption=0.9,
+)
+geometry = [
+    Surface(
+        id=f"bottom",
+        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, -2.0])),
+        material=sand_material,
+        mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply"),
+    ),
+    Surface(
+        id=f"cube",
+        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, -1.0])),
+        material=sand_material,
+        mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
+    ),
+]
+scene = Scene([], [], geometry)
 
 device = torch.device('cuda')
 
 map = OccupancyGridMap(100, 100, 100, 0.03,
-                       SE3.Rt(SO3(), (-1, -1, -1)),
+                       SE3.Rt(SO3(), (-1.5, -1.5, -2.5)),
                        device)
 
 # Configure steering angles
-steering_az = np.linspace(-pi, pi, 18)
-steering_el = np.linspace(0, pi / 2, 5, endpoint=True)  # elevation from x-y plane toward +z
+# steering_az = np.linspace(-pi, pi, 18)
+# steering_el = np.linspace(0, pi / 2, 5, endpoint=True)  # elevation from x-y plane toward +z
+steering_az = np.array([0])
+steering_el = np.array([pi/2])
 steering_dir = az_el_to_direction_grid(steering_az, steering_el)
+steering_dir = steering_dir.reshape(-1, 3)
 
 # Gain LUT
 looking_res_deg = 1
@@ -42,20 +70,69 @@ looking_az = np.linspace(-pi, pi, 360 // looking_res_deg)
 looking_el = np.linspace(0, pi / 2, 90 // looking_res_deg)  # elevation from x-y plane toward +z
 looking_dir = az_el_to_direction_grid(looking_az, looking_el)
 
-f = np.array([code.carrier])
+
+fc = code.carrier
+f = np.array([code.carrier,])
 k = 2*pi*f / C
 
-gain_db = array.get_gain(steering_dir, looking_dir, np.array([k]))
-gain = 10 ** (gain_db[..., 0] / 20)
+gain_db = array.get_gain(steering_dir, looking_dir.reshape(-1, 3), k)
+gain = 10 ** (gain_db / 20)
+gain = gain[0].reshape((len(steering_dir),) + looking_dir.shape[:2])
 
-filter = cheby1(4, 3, 0.5*f, btype='low', fs=1/T_rx)
+# fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+# c = ax.pcolormesh(looking_az, pi /2 - looking_el, gain[0].T, shading='auto', cmap='viridis')
+#
+# plt.show()
 
-for pose_i in range(len(rx_pattern)):
-    pose_pattern = rx_pattern[pose_i]
+filter = cheby1(4, 3, 0.1*fc, btype='low', fs=1/T_rx, output='sos')
 
-    beamformed_signal = array.beamform_receive(np.array([k]), steering_dir, pose_pattern, T_rx)[0]
+# interference wave
+T_m = len(code.baseband) * T_rx
+f_m = 1 / T_m
+w_m = 2*pi*f_m # rad / s
+w_m_sample = w_m * T_rx  # rad / sample
+k_m = w_m / C
+
+print(f'T_m = {T_m}, f_m = {f_m}, lambda_m = {C / f_m}')
+
+
+for pose_i in tqdm(range(1, len(rx_pattern))):
+    pattern_i = pose_i - 1
+    pose_pattern = rx_pattern[pattern_i].reshape((array.nx, array.ny, -1))
+
+    # beamformed_signal = array.beamform_receive(k, steering_dir, pose_pattern, T_rx)[0]
+    beamformed_signal = pose_pattern[0]
+
+    _, pose = trajectory[pose_i]
 
     for steering_i in range(len(steering_dir)):
-        correlation = correlate(beamformed_signal[steering_i], code.baseband, mode='valid')
-        correlation = sosfilt(filter, correlation)
+        correlation = correlate(beamformed_signal[steering_i], code.baseband, mode='full')
+        correlation = sosfilt(filter, correlation) # ensure shift here is correct
 
+        # correlation_tt = np.arange(len(correlation)) * T_rx
+        # plt.plot(correlation_tt, correlation)
+        # plt.show()
+
+        phi = np.sum(np.exp(2j * w_m_sample * np.arange(len(correlation))) * correlation)
+
+        steering_gain = gain[steering_i]
+
+        map.add_measurement(phi,
+                            k_m,
+                            torch.tensor(gain[steering_i], device=device),
+                            pose,
+                            visualization_geometry=scene.visualization_geometry())
+
+map_abs = np.abs(map.get_map().cpu().numpy())
+map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
+
+plot_slices_with_colormap(map_abs, map.world_t_grid,
+                          geometry=scene.visualization_geometry(),
+                          n_slices=3,
+                          axis=1,
+                          vehicle_pose=pose)
+
+with open('map.pkl', 'wb') as f:
+    pickle.dump(map.get_map().cpu().numpy(), f)
+
+print('done')

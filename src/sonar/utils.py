@@ -9,7 +9,7 @@ from scipy.signal import correlate
 
 class BarkerCode(ABC):
 
-    class Sequence(Enum):
+    class Sequence:
         BARKER_2 = np.array([+1, -1])
         BARKER_3 = np.array([+1, +1, -1])
         # ...
@@ -17,17 +17,16 @@ class BarkerCode(ABC):
         # ...
 
     @abstractmethod
-    @deprecated
     def correlate(self, signal: np.array) -> np.array:
         ...
 
-    @abstractmethod
     @property
+    @abstractmethod
     def carrier(self) -> float:
         ...
 
-    @abstractmethod
     @property
+    @abstractmethod
     def baseband(self) -> np.array:
         ...
 
@@ -42,15 +41,17 @@ class PMBarker(BarkerCode):
         omega = 2 * pi * f
         bit_high = np.cos(tt * omega)
         bit_low = np.sin(tt * omega)
-        for i, bit in code:
+        for i, bit in enumerate(code):
             shift = i * bit_samples
             baseband[shift:shift + bit_samples] = bit_high if bit == 1 else bit_low
         self._baseband = baseband
         self._carrier = f
 
+
     def correlate(self, signal: np.array) -> np.array:
         return correlate(signal, self._baseband, mode='valid')
 
+    @property
     def carrier(self) -> float:
         return self._carrier
 
@@ -110,7 +111,7 @@ class FMBarker:
 
 def az_el_to_direction_grid(az, el):
     grid = np.transpose(np.meshgrid(az, el)).reshape(-1, 2)
-    x = np.cos(grid[0]) * np.cos(grid[1])
-    y = np.sin(grid[0]) * np.cos(grid[1])
-    z = np.sin(grid[1])
-    return np.transpose((x, y, z))
+    x = np.cos(grid[:, 0]) * np.cos(grid[:, 1])
+    y = np.sin(grid[:, 0]) * np.cos(grid[:, 1])
+    z = np.sin(grid[:, 1])
+    return np.transpose((x, y, z)).reshape((len(az), len(el), 3))

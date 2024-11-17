@@ -51,8 +51,8 @@ def generate_circle_coordinates(center, radius, velocity, duration, sample_rate,
             # pitch = 0.0
             # yaw = np.arctan2(cy - y, cx - x)
 
-            world_t_vehicle = SO3.RPY(0.0, 0.0, np.arctan2(cy - y, cx - x)) # x forward, z up
-            world_t_array = world_t_vehicle @ SO3.TwoVectors(z="x", y="-z")
+            world_t_vehicle = SO3.RPY(np.pi, 0.0, 0.0) # x forward, z up
+            world_t_array = world_t_vehicle
             roll, pitch, yaw = world_t_array.rpy()
 
             # Write the row to the CSV file
@@ -61,11 +61,11 @@ def generate_circle_coordinates(center, radius, velocity, duration, sample_rate,
     print(f"Data saved to {output_file}")
 
 # Example usage
-center_point = (10.0, 0.0, 0.0)  # Center of the circle at (x, y, z)
-radius = 10.0  # Radius of the circle in meters
+center_point = (0.0, 0.0, 0.0)  # Center of the circle at (x, y, z)
+radius = 2.0  # Radius of the circle in meters
 velocity = 0.1  # Linear velocity in meters per second
-duration = 600  # Duration of the movement in seconds
-sample_rate = 0.1  # Sampling rate in samples per second
+duration = 2*np.pi*radius / velocity  # Duration of the movement in seconds
+sample_rate = 1  # Sampling rate in samples per second
 output_csv = "circular_path.csv"
 
 generate_circle_coordinates(center_point, radius, velocity, duration, sample_rate, output_csv)

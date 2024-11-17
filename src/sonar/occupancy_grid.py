@@ -8,6 +8,9 @@ from spatialmath import SE3
 import torch
 import torch.nn.functional as F
 
+from visualization.visualize_map import plot_slices_with_colormap
+
+
 class OccupancyGridMap:
 
     def __init__(self, x: int, y: int, z: int, size: float,
@@ -20,7 +23,7 @@ class OccupancyGridMap:
         self._device = device
 
     @functools.cached_property
-    def _world_t_grid(self):
+    def world_t_grid(self):
         nx, ny, nz = self._map.shape
         x = torch.linspace(0, nx-1, nx, device=self._device, dtype=torch.double) * self._size
         y = torch.linspace(0, ny-1, ny, device=self._device, dtype=torch.double) * self._size
@@ -37,17 +40,18 @@ class OccupancyGridMap:
                         phi,
                         k: float,
                         directivity: torch.Tensor,
-                        world_t_array: SE3):
+                        world_t_array: SE3,
+                        visualization_geometry=None):
 
         array_t_world = world_t_array.inv()
         array_t_world_t = torch.tensor(np.array(array_t_world), device=self._device)
 
-        array_t_grid = (array_t_world_t @ self._world_t_grid.reshape((-1, 4)).T).T
-        array_t_grid = array_t_grid.reshape(self._world_t_grid.shape)
+        array_t_grid = (array_t_world_t @ self.world_t_grid.reshape((-1, 4)).T).T
+        array_t_grid = array_t_grid.reshape(self.world_t_grid.shape)
         del array_t_world_t
 
         array_t_grid_norm = array_t_grid[..., :3].norm(dim=-1)
-        array_t_grid_unit = array_t_grid / array_t_grid_norm
+        array_t_grid_unit = array_t_grid / array_t_grid_norm.unsqueeze(-1)
         del array_t_grid
 
         az = torch.atan2(array_t_grid_unit[..., 1], array_t_grid_unit[..., 0])
@@ -57,10 +61,17 @@ class OccupancyGridMap:
         directivity_lookup = torch.cat((az, el), dim=-1).flatten(0, 2).reshape((1, 1, -1, 2))
         directivity = directivity.reshape((1, 1) + directivity.shape)
         gain = F.grid_sample(directivity, directivity_lookup)[0, 0, 0, :]
-        gain = gain.unflatten(0, self._world_t_grid.shape[:3])
+        gain = gain.unflatten(0, self.world_t_grid.shape[:3])
 
         psi = phi * torch.exp(-2j * np.pi * k * array_t_grid_norm) * gain * array_t_grid_norm**2
 
+        phi_norm = np.abs(psi.cpu().numpy())
+        phi_norm = (phi_norm - np.min(phi_norm)) / (np.max(phi_norm) - np.min(phi_norm))
+
+        # plot_slices_with_colormap(phi_norm, self.world_t_grid,
+        #                           geometry=visualization_geometry,
+        #                           n_slices=15,
+        #                           vehicle_pose=world_t_array)
         self._map += psi
 
     def get_map(self):
@@ -70,5 +81,5 @@ class OccupancyGridMap:
 if __name__ == "__main__":
     dev = torch.device('cuda')
     ogm = OccupancyGridMap(100, 100, 100, 0.1, SE3(), dev)
-    gc = ogm._world_t_grid
+    gc = ogm.world_t_grid
     print(gc.shape)

@@ -3,7 +3,7 @@ from spatialmath import SE3, SO3
 
 from sonar.occupancy_grid import OccupancyGridMap
 from sonar.phased_array import RectangularArray
-from sonar.utils import BarkerCode, FMBarker
+from sonar.utils import BarkerCode, FMBarker, PMBarker
 from tracer.motion_random_tracer import Trajectory
 from tracer.run_experiment import run_experiment
 from pathlib import Path
@@ -20,46 +20,51 @@ sources = [
             min_az=-pi,
             max_az=pi,
             min_el=0,
-            max_el=pi,
+            max_el=pi/2,
         )
     )
 ]
 
-arr = RectangularArray(10, 10, 0.075, UniformContinuousAngularDistribution(
+arr = RectangularArray(6, 6, 0.0075, UniformContinuousAngularDistribution(
     min_az=-pi, max_az=pi, min_el=0, max_el=pi
 ))
 
 sand_material = SimpleMaterial(
     absorption=0.9,
 )
-sand_surfaces = [
+
+surfaces = [
     Surface(
-        id=f"sand",
-        pose=SE3.Rt(SO3(), np.array([10.0, 0.0, 0.0])),
+        id=f"bottom",
+        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, -2.0])),
         material=sand_material,
-        mesh=o3d.io.read_triangle_mesh("../assets/cube.ply"),
-    )
+        mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply"),
+    ),
+    Surface(
+        id=f"cube",
+        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, -1.0])),
+        material=sand_material,
+        mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
+    ),
 ]
 
 scene = Scene(
     sources=sources,
     sinks=arr.sinks,
-    surfaces=sand_surfaces,
+    surfaces=surfaces,
 )
 
 
 trajectory = Trajectory(Path('experiments/circular_path.csv'))
 T_tx = T_rx = 1e-6 # 1 MHz
-code = FMBarker(BarkerCode.Sequence.BARKER_7, 100_000, 110_000, T_tx, 100e-6)
+code = PMBarker(BarkerCode.Sequence.BARKER_7, 100_000, T_tx, 100e-6)
 
 result = run_experiment(Path('exp_res.pkl'),
                         scene,
                         trajectory,
-                        code.baseband,
+                        code,
                         T_tx,
                         T_rx,
-                        n_rays=10000,
-                        visualize=True)
-
-
-
+                        n_rays=100000,
+                        array=arr,
+                        visualize=False)
