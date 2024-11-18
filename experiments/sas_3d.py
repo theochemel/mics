@@ -131,11 +131,22 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
     map_abs = np.abs(map.get_map().cpu().numpy())
     map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
 
-    plot_slices_with_colormap(map_abs, map.world_t_grid,
-                              geometry=scene.visualization_geometry(),
-                              n_slices=10,
-                              axis=1,
-                              vehicle_pose=pose)
+    plt.subplot(1, 3, 1)
+    plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
+    plt.title("X = 0")
+    plt.subplot(1, 3, 2)
+    plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
+    plt.title("Y = 0")
+    plt.subplot(1, 3, 3)
+    plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
+    plt.title("Z = 0")
+    plt.show()
+
+    # plot_slices_with_colormap(map_abs, map.world_t_grid,
+    #                           geometry=scene.visualization_geometry(),
+    #                           n_slices=10,
+    #                           axis=1,
+    #                           vehicle_pose=pose)
 
 with open('map.pkl', 'wb') as f:
     pickle.dump(map.get_map().cpu().numpy(), f)
