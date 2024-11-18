@@ -90,12 +90,14 @@ k_m = w_m / C
 print(f'T_m = {T_m}, f_m = {f_m}, lambda_m = {C / f_m}')
 
 vehicle_poses = [
-    o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1).transform(p)
+    o3d.geometry.TriangleMesh.create_coordinate_frame(size=2).transform(p)
     for _, p in trajectory
 ]
 
-geometry = scene.visualization_geometry() + vehicle_poses
+print(vehicle_poses)
 
+# geometry = scene.visualization_geometry() + vehicle_poses
+geometry = vehicle_poses
 
 for pose_i in tqdm(range(1, len(rx_pattern))):
     pattern_i = pose_i - 1
@@ -135,25 +137,25 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
                             pose,
                             visualization_geometry=geometry)
 
-    map_abs = np.abs(map.get_map().cpu().numpy())
-    map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
+map_abs = np.abs(map.get_map().cpu().numpy())
+map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
 
-    plt.subplot(1, 3, 1)
-    plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
-    plt.title("X = 0")
-    plt.subplot(1, 3, 2)
-    plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
-    plt.title("Y = 0")
-    plt.subplot(1, 3, 3)
-    plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
-    plt.title("Z = 0")
-    plt.show()
+    # plt.subplot(1, 3, 1)
+    # plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
+    # plt.title("X = 0")
+    # plt.subplot(1, 3, 2)
+    # plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
+    # plt.title("Y = 0")
+    # plt.subplot(1, 3, 3)
+    # plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
+    # plt.title("Z = 0")
+    # plt.show()
 
-    plot_slices_with_colormap(map_abs, map.world_t_grid,
-                              geometry=geometry,
-                              n_slices=10,
-                              axis=1,
-                              vehicle_pose=pose)
+plot_slices_with_colormap(map_abs, map.world_t_grid,
+                          geometry=geometry,
+                          n_slices=10,
+                          axis=1,
+                          vehicle_pose=pose)
 
 with open('map.pkl', 'wb') as f:
     pickle.dump(map.get_map().cpu().numpy(), f)

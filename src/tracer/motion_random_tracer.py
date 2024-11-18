@@ -33,14 +33,7 @@ class Trajectory:
         return len(self._poses)
 
     def __iter__(self):
-        return self
-
-    def __next__(self) -> Tuple[float, SE3]:
-        self._idx += 1
-        if self._idx == len(self):
-            raise StopIteration
-        else:
-            return self._poses[self._idx]
+        return self._poses.__iter__()
 
 
 class MotionTracer:
