@@ -89,6 +89,13 @@ k_m = w_m / C
 
 print(f'T_m = {T_m}, f_m = {f_m}, lambda_m = {C / f_m}')
 
+vehicle_poses = [
+    o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1).transform(p)
+    for _, p in trajectory
+]
+
+geometry = scene.visualization_geometry() + vehicle_poses
+
 
 for pose_i in tqdm(range(1, len(rx_pattern))):
     pattern_i = pose_i - 1
@@ -126,7 +133,7 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
                             k_m,
                             torch.tensor(gain[steering_i], device=device),
                             pose,
-                            visualization_geometry=scene.visualization_geometry())
+                            visualization_geometry=geometry)
 
     map_abs = np.abs(map.get_map().cpu().numpy())
     map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
@@ -142,11 +149,11 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
     plt.title("Z = 0")
     plt.show()
 
-    # plot_slices_with_colormap(map_abs, map.world_t_grid,
-    #                           geometry=scene.visualization_geometry(),
-    #                           n_slices=10,
-    #                           axis=1,
-    #                           vehicle_pose=pose)
+    plot_slices_with_colormap(map_abs, map.world_t_grid,
+                              geometry=geometry,
+                              n_slices=10,
+                              axis=1,
+                              vehicle_pose=pose)
 
 with open('map.pkl', 'wb') as f:
     pickle.dump(map.get_map().cpu().numpy(), f)
