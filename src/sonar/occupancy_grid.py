@@ -10,13 +10,14 @@ import torch.nn.functional as F
 
 from visualization.visualize_map import plot_slices_with_colormap
 
+torch.set_grad_enabled(False)
 
 class OccupancyGridMap:
 
     def __init__(self, x: int, y: int, z: int, size: float,
                  world_t_map: SE3,
                  device: torch.device):
-        self._map = torch.zeros([x, y, z], dtype=torch.complex64, device=device)
+        self._map = torch.zeros([x, y, z], dtype=torch.complex128, device=device)
         self._size = size
         self._world_t_map = world_t_map
         self._C = 1500
@@ -37,7 +38,8 @@ class OccupancyGridMap:
         return world_t_grid
 
     def add_measurement(self,
-                        phi,
+                        range_spacing: float,
+                        intensity: torch.Tensor,
                         k: float,
                         directivity: torch.Tensor,
                         world_t_array: SE3,
@@ -61,18 +63,36 @@ class OccupancyGridMap:
         directivity_lookup = torch.cat((az, el), dim=-1).flatten(0, 2).reshape((1, 1, -1, 2))
         directivity = directivity.reshape((1, 1) + directivity.shape)
         gain = F.grid_sample(directivity, directivity_lookup)[0, 0, 0, :]
-        gain = gain.unflatten(0, self.world_t_grid.shape[:3])
+        grid_gain = gain.unflatten(0, self.world_t_grid.shape[:3])
 
-        psi = phi * torch.exp(-2j * np.pi * k * array_t_grid_norm) * gain * array_t_grid_norm**2
+        grid_range = array_t_grid_norm
+        grid_range_index = (grid_range / range_spacing).to(torch.int)
 
-        phi_norm = np.abs(psi.cpu().numpy())
-        phi_norm = (phi_norm - np.min(phi_norm)) / (np.max(phi_norm) - np.min(phi_norm))
+        grid_update_valid = grid_range_index < len(intensity)
+
+        grid_update = torch.zeros_like(self._map)
+        grid_update[grid_update_valid] = \
+            intensity[grid_range_index[grid_update_valid]] \
+            * torch.exp(2j * k * grid_range[grid_update_valid])
+            # * grid_gain[grid_update_valid] \
+
+        self._map = self._map + grid_update
+
+        # plt.imshow((grid_update[:, :, grid_update.shape[2] // 2]).abs())
+        # plt.show()
+
+        pass
+
+        # psi = phi * torch.exp(-2j * np.pi * k * array_t_grid_norm) * gain * array_t_grid_norm**2
+
+        # phi_norm = np.abs(psi.cpu().numpy())
+        # phi_norm = (phi_norm - np.min(phi_norm)) / (np.max(phi_norm) - np.min(phi_norm))
 
         # plot_slices_with_colormap(phi_norm, self.world_t_grid,
         #                           geometry=visualization_geometry,
         #                           n_slices=15,
         #                           vehicle_pose=world_t_array)
-        self._map += psi
+        # self._map += psi
 
     def get_map(self):
         return self._map

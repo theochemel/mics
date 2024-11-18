@@ -28,7 +28,7 @@ sources = [
 ]
 
 c = 1500
-f = 200e3
+f = 75e3
 l = c / f
 
 spacing = l / 2

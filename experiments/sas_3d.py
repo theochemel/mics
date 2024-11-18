@@ -36,31 +36,25 @@ sand_material = SimpleMaterial(
 )
 geometry = [
     Surface(
-        id=f"bottom",
-        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, -2.0])),
-        material=sand_material,
-        mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply"),
-    ),
-    Surface(
         id=f"cube",
-        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, -1.0])),
+        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, 0.0])),
         material=sand_material,
-        mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
+        mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
     ),
 ]
 scene = Scene([], [], geometry)
 
-device = torch.device('cuda')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-map = OccupancyGridMap(100, 100, 100, 0.03,
-                       SE3.Rt(SO3(), (-1.5, -1.5, -2.5)),
+map = OccupancyGridMap(100, 100, 100, 0.2,
+                       SE3.Rt(SO3(), (-10, -10, -10)),
                        device)
 
 # Configure steering angles
 # steering_az = np.linspace(-pi, pi, 18)
 # steering_el = np.linspace(0, pi / 2, 5, endpoint=True)  # elevation from x-y plane toward +z
 steering_az = np.array([0])
-steering_el = np.array([pi/2])
+steering_el = np.array([0])
 steering_dir = az_el_to_direction_grid(steering_az, steering_el)
 steering_dir = steering_dir.reshape(-1, 3)
 
@@ -80,7 +74,7 @@ gain = 10 ** (gain_db / 20)
 gain = gain[0].reshape((len(steering_dir),) + looking_dir.shape[:2])
 
 # fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-# c = ax.pcolormesh(looking_az, pi /2 - looking_el, gain[0].T, shading='auto', cmap='viridis')
+# c = ax.pcolormesh(looking_az, looking_el, gain[0].T, shading='auto', cmap='viridis')
 #
 # plt.show()
 
@@ -100,37 +94,48 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
     pattern_i = pose_i - 1
     pose_pattern = rx_pattern[pattern_i].reshape((array.nx, array.ny, -1))
 
-    # beamformed_signal = array.beamform_receive(k, steering_dir, pose_pattern, T_rx)[0]
-    beamformed_signal = pose_pattern[0]
+    beamformed_signal = array.beamform_receive(k, steering_dir, pose_pattern, T_rx)[0]
+    # beamformed_signal = pose_pattern[0]
 
     _, pose = trajectory[pose_i]
 
     for steering_i in range(len(steering_dir)):
-        correlation = correlate(beamformed_signal[steering_i], code.baseband, mode='full')
-        correlation = sosfilt(filter, correlation) # ensure shift here is correct
+        raw_correlation = correlate(beamformed_signal[steering_i], code.baseband, mode='full')
+
+        correlation = sosfilt(filter, np.abs(raw_correlation)) # ensure shift here is correct
+
+        # plt.subplot(2, 1, 1)
+        # plt.plot(raw_correlation)
+        # plt.subplot(2, 1, 2)
+        # plt.plot(correlation)
+        # plt.show()
 
         # correlation_tt = np.arange(len(correlation)) * T_rx
         # plt.plot(correlation_tt, correlation)
         # plt.show()
 
-        phi = np.sum(np.exp(2j * w_m_sample * np.arange(len(correlation))) * correlation)
+        # range = (np.arange(len(correlation)) * T_rx * C) / 2.0
+        range_spacing = (T_rx * C) / 2.0
+        intensity = correlation * np.exp(2j * w_m_sample * np.arange(len(correlation)))
+        intensity /= intensity.max()
 
         steering_gain = gain[steering_i]
 
-        map.add_measurement(phi,
+        map.add_measurement(range_spacing,
+                            torch.tensor(intensity, device=device),
                             k_m,
                             torch.tensor(gain[steering_i], device=device),
                             pose,
                             visualization_geometry=scene.visualization_geometry())
 
-map_abs = np.abs(map.get_map().cpu().numpy())
-map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
+    map_abs = np.abs(map.get_map().cpu().numpy())
+    map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
 
-plot_slices_with_colormap(map_abs, map.world_t_grid,
-                          geometry=scene.visualization_geometry(),
-                          n_slices=3,
-                          axis=1,
-                          vehicle_pose=pose)
+    plot_slices_with_colormap(map_abs, map.world_t_grid,
+                              geometry=scene.visualization_geometry(),
+                              n_slices=10,
+                              axis=1,
+                              vehicle_pose=pose)
 
 with open('map.pkl', 'wb') as f:
     pickle.dump(map.get_map().cpu().numpy(), f)

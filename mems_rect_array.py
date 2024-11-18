@@ -6,7 +6,7 @@ from mpl_toolkits.mplot3d import Axes3D
 
 # Parameters
 c = 1500  # Speed of sound in water (m/s)
-f = 80e3  # Frequency of the sound (Hz)
+f = 75e3  # Frequency of the sound (Hz)
 l = c / f
 
 # Array parameters
@@ -352,7 +352,10 @@ def plot_geometry(positions):
 
 spacing = l / 2.0
 
-n = 11
+print(f"wavelength: {l}")
+print(f"spacing: {spacing}")
+
+n = 10
 
 i = np.arange(0, n)
 
@@ -366,14 +369,14 @@ positions = np.stack((
     x, y, np.zeros_like(x),
 ), axis=1)
 
-diameter = np.ptp(positions)
-radius = diameter / 2
-
-center = np.mean(positions, axis=0)
-
-inside_circle = np.linalg.norm(positions - center, axis=1) < 1.01 * radius
-
-positions = positions[inside_circle]
+# diameter = np.ptp(positions)
+# radius = diameter / 2
+#
+# center = np.mean(positions, axis=0)
+#
+# inside_circle = np.linalg.norm(positions - center, axis=1) < 1.01 * radius
+#
+# positions = positions[inside_circle]
 
 print(positions.shape[0])
 
