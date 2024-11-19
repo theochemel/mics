@@ -12,6 +12,7 @@ import matplotlib
 from sonar.occupancy_grid import OccupancyGridMap
 from sonar.phased_array import RectangularArray
 from sonar.utils import BarkerCode, az_el_to_direction_grid
+from tracer.geometry import db_to_amplitude
 from tracer.motion_random_tracer import Trajectory
 from tracer.scene import Surface, SimpleMaterial, Scene
 
@@ -49,10 +50,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 # Configure steering angles
-# steering_az = np.linspace(-pi, pi, 18)
-# steering_el = np.linspace(0, pi / 2, 5, endpoint=True)  # elevation from x-y plane toward +z
-steering_az = np.array([0])
-steering_el = np.array([0])
+steering_az = np.linspace(-pi, pi, 18)
+steering_el = np.linspace(0, pi / 2, 5, endpoint=True)  # elevation from x-y plane toward +z
 steering_dir = az_el_to_direction_grid(steering_az, steering_el)
 steering_dir = steering_dir.reshape(-1, 3)
 
@@ -62,14 +61,11 @@ looking_az = np.linspace(-pi, pi, 360 // looking_res_deg)
 looking_el = np.linspace(0, pi / 2, 90 // looking_res_deg)  # elevation from x-y plane toward +z
 looking_dir = az_el_to_direction_grid(looking_az, looking_el)
 
-
-fc = code.carrier
-f = np.array([code.carrier,])
-k = 2*pi*f / C
+k = 2 * pi * code.carrier / C
 
 gain_db = array.get_gain(steering_dir, looking_dir.reshape(-1, 3), k)
-gain = 10 ** (gain_db / 20)
-gain = gain[0].reshape((len(steering_dir),) + looking_dir.shape[:2])
+gain = db_to_amplitude(gain_db)
+gain = gain.reshape((steering_dir.shape[0], looking_dir.shape[0]))
 
 # fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
 # c = ax.pcolormesh(looking_az, looking_el, gain[0].T, shading='auto', cmap='viridis')

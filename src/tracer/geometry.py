@@ -67,6 +67,14 @@ def az_el_to_direction(az_el: np.array) -> np.array:
     ), axis=-1)
 
 
+def az_el_to_direction_grid(az, el):
+    grid = np.transpose(np.meshgrid(az, el)).reshape(-1, 2)
+    x = np.cos(grid[:, 0]) * np.sin(grid[:, 1])
+    y = np.sin(grid[:, 0]) * np.sin(grid[:, 1])
+    z = np.cos(grid[:, 1])
+    return np.transpose((x, y, z)).reshape((len(az), len(el), 3))
+
+
 def direction_to_az_el(direction: np.array) -> np.array:
     x = direction[:, 0]
     y = direction[:, 1]
@@ -76,3 +84,4 @@ def direction_to_az_el(direction: np.array) -> np.array:
         np.arctan2(y, x),
         (np.pi / 2) - np.arctan2(z, np.sqrt(x**2 + y**2))
     ), axis=-1)
+

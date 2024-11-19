@@ -112,9 +112,3 @@ class FMBarker:
         return self._baseband
 
 
-def az_el_to_direction_grid(az, el):
-    grid = np.transpose(np.meshgrid(az, el)).reshape(-1, 2)
-    x = np.cos(grid[:, 0]) * np.sin(grid[:, 1])
-    y = np.sin(grid[:, 0]) * np.sin(grid[:, 1])
-    z = np.cos(grid[:, 1])
-    return np.transpose((x, y, z)).reshape((len(az), len(el), 3))

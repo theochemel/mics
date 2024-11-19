@@ -1,176 +1,191 @@
-from abc import ABC, abstractmethod, abstractproperty
-from functools import cache
+from abc import ABC, abstractmethod
 from typing import List
 
 import numpy as np
-from matplotlib import pyplot as plt
 from numpy import pi
-from spatialmath import SE3, SO3
+from spatialmath import SE3
 
-from tracer.scene import Source, Sink, ContinuousAngularDistribution, UniformContinuousAngularDistribution
-from dataclasses import dataclass
+from tracer.geometry import amplitude_to_db, az_el_to_direction_grid, db_to_amplitude, direction_to_az_el
+from tracer.scene import Sink, ContinuousAngularDistribution, UniformContinuousAngularDistribution
 
 
-class RectangularArray:
+class Array(ABC):
+
+    @property
+    @abstractmethod
+    def sinks(self) -> List[Sink]:
+        pass
+
+    @property
+    @abstractmethod
+    def positions(self) -> np.array:
+        pass
+
+
+class RectangularArray(Array):
 
     def __init__(self, nx: int, ny: int, spacing: float, ang_dist: ContinuousAngularDistribution):
         size_x = spacing * (nx - 1)
         size_y = spacing * (ny - 1)
+
         t_x = np.arange(nx) * spacing - size_x / 2
         t_y = np.arange(ny) * spacing - size_y / 2
 
-        self._elem_t = np.empty((nx, ny, 3))
-        self._elem_t[:, :, :2] = np.array(np.meshgrid(t_x, t_y)).transpose((1, 2, 0))
-        self._elem_t[:, :, 2] = 0
+        t_x, t_y = np.meshgrid(t_x, t_y, indexing="xy")
+        t_x = t_x.flatten()
+        t_y = t_y.flatten()
+
+        self._positions = np.stack((
+            t_x, t_y, np.zeros_like(t_x),
+        ), axis=-1)
 
         self._ang_dist = ang_dist
-        self._nx = nx
-        self._ny = ny
-        self._spacing = spacing
-        self._C = 1500
 
     @property
-    @cache
     def sinks(self) -> List[Sink]:
         """
         :return: List of all sinks in the array
         """
         sinks: List[Sink] = []
-        for ix in range(self._nx):
-            for iy in range(self._ny):
-                sinks.append(Sink(
-                    f'sink_{ix}_{iy}',
-                    SE3.Rt(SO3(), [self._elem_t[ix][iy][0], self._elem_t[ix][iy][1], 0]),
-                    self._ang_dist
-                ))
+
+        for i in range(self._positions.shape[0]):
+            sinks.append(Sink(
+                f'sink_{i}',
+                SE3.Trans(self._positions[i]),
+                self._ang_dist
+            ))
 
         return sinks
 
-    def get_gain(self, steering_dir: np.array, looking_dir: np.array, k: np.array) -> np.array:
+    @property
+    def positions(self) -> np.array:
+        """
+        :return: [n_elem, 3] positions of elements in array coordinate frame
+        """
+        return self._positions
+
+
+class DASBeamformer:
+
+    def __init__(self, array: Array, C: float):
+        self._array = array
+        self._C = C
+
+    def get_gain(self, steering_dir: np.array, looking_dir: np.array, k: float) -> np.array:
         """
         Get array directivity in given direction(s) for given steering angle(s)
-        :param steering_dir: N x 3 (steering unit vector in the array coordinate frame)
-        :param looking_dir: M x 3 (looking angle unit vector in the array coordinate frame)
-        :param k: K (angular wavenumber rad/m)
-        :return: N x M x K (gain relative to isotropic source in dB)
+        :param steering_dir: [n_steering, 3] (steering unit vector in the array coordinate frame)
+        :param looking_dir: [n_looking, 3] (looking angle unit vector in the array coordinate frame)
+        :param k (angular wavenumber rad/m)
+        :return: [n_steering, n_looking] (gain relative to isotropic source in dB)
         """
 
-        n_steering = len(steering_dir)
-        n_theta = len(looking_dir)
-        n_k = len(k)
+        # [n_steering, n_elems]
+        steering_delays = self.steer(steering_dir, k)
 
-        # calculate phase delays for steering
-        steering_phases = self.steer(k, steering_dir)
-        steering_phases = steering_phases.reshape(*steering_phases.shape[:-2], -1) # n_k x n_steering x n_elems
+        # [n_looking, n_elems]
+        looking_delays = self.steer(looking_dir, k)
 
-        # calculate phase delays for looking angle
-        theta_phase_delays = self.steer(k, looking_dir)
-        theta_phase_delays = theta_phase_delays.reshape(*theta_phase_delays.shape[:-2], -1) # n_k x n_theta x n_elems
+        # [n_steering, n_looking, n_elem]
+        steering_delays_grid = np.repeat(steering_delays[:, np.newaxis, :], looking_delays.shape[0], axis=1)
+
+        # [n_steering, n_looking, n_elem]
+        looking_delays_grid = np.repeat(looking_delays[np.newaxis, :, :], steering_delays.shape[0], axis=0)
 
         # calculate phases for looking angle
-        print('theta phases')
-        theta_phases = theta_phase_delays[:, :, np.newaxis, :] - steering_phases[:, np.newaxis, :, :]
+        delta_delays = steering_delays_grid - looking_delays_grid
 
-        print('summing')
+        # [n_steering, n_looking]
         A = np.sqrt(
-            np.sum(np.sin(theta_phases), axis=-1)**2 + np.sum(np.cos(theta_phases), axis=-1)**2
-        )
+            np.sum(np.sin(delta_delays), axis=-1) ** 2 + np.sum(np.cos(delta_delays), axis=-1) ** 2
+        ) / delta_delays.shape[-1]
 
-        return 20*np.log10(A)
+        return amplitude_to_db(A)
 
-    def steer(self, k: np.array, steering_dir: np.array) -> np.array:
+    def steer(self, steering_dir: np.array, k: float) -> np.array:
         """
         Compute phase delays for given steering angle(s)
-        :param k: (n_k, ) angular wavenumbers
         :param steering_dir: (n_steering, 3) steering unit vector in the array coordinate frame
-        :return: (n_k, n_steering, nx, ny) phase delays for each element relative to the centerpoint of the array
+        :param k: angular wavenumber
+        :return: (n_steering, n_elems) phase delays for each element relative to the centerpoint of the array
         """
+        positions = self._array.positions
 
-        offsets = np.einsum('ni,xyi->nxy', steering_dir, self._elem_t)
-        steering_phases = np.einsum('k,nxy->knxy', k, offsets)
+        steering_dir_grid = np.repeat(steering_dir[:, np.newaxis, :], positions.shape[0], axis=1)
+        position_grid = np.repeat(positions[np.newaxis, :, :], steering_dir.shape[0], axis=0)
 
-        return steering_phases
+        delays = -np.sum(steering_dir_grid * position_grid, axis=-1) * k
 
-    def beamform_receive(self, k: np.array, steering: np.array, rx_pattern: np.array, T: float) -> np.array:
+        return delays
+
+    def beamform_receive(self, steering_dir: np.array, rx_pattern: np.array, T: float, k: float) -> np.array:
         """
         Delay-and-sum individual element signals steering the array in given direction(s)
-        :param k: (n_k, ) angular wavenumbers
-        :param steering: (n_steering, 3) steering unit vector in the array coordinate frame
-        :param rx_pattern: (nx, ny, [t/T_rx]) wave for each sink
+        :param steering_dir: (n_steering, 3) steering unit vector in the array coordinate frame
+        :param rx_pattern: (n_elem, [t/T_rx]) wave for each sink
         :param T: sample period
-        :return (n_k, n_steering, [t'/T_rx])
+        :param k: angular wavenumber
+        :return (n_steering, [t'/T_rx]) beamformed signals for each steering direction
         """
 
-        phase_shifts = self.steer(k, steering)
-        sec_per_rad = 1 / (k * self._C)
-        delays = phase_shifts * sec_per_rad[:, np.newaxis, np.newaxis, np.newaxis]
-        shifts_samples = np.round(delays / T).astype(np.int64)
+        delays = self.steer(steering_dir, k)
 
-        front_padding = np.abs(np.min(shifts_samples))
-        back_padding = np.max(shifts_samples)
+        # sec_per_rad = 1 / (k * self._C)
+        # time_delays = delays * sec_per_rad[:, np.newaxis, np.newaxis, np.newaxis]
+        # shifts_samples = np.round(delays / T).astype(np.int64)
+        #
+        # front_padding = np.abs(np.min(shifts_samples))
+        # back_padding = np.max(shifts_samples)
+        #
+        # t = rx_pattern.shape[2]
+        # n_k = len(k)
+        # n_steering = len(steering)
+        #
+        # result = np.zeros((n_k, n_steering, front_padding + t + back_padding))
+        # for i_k, k_val in enumerate(k): # TODO vectorize
+        #     for i_steering, steering_val in enumerate(steering):
+        #         for x in range(self._nx):
+        #             for y in range(self._ny):
+        #                 d = front_padding + shifts_samples[i_k, i_steering, x, y]
+        #                 result[i_k, i_steering, d:d+t] += rx_pattern[x, y, :]
+        #
+        #
+        # return result
 
-        t = rx_pattern.shape[2]
-        n_k = len(k)
-        n_steering = len(steering)
 
-        result = np.zeros((n_k, n_steering, front_padding + t + back_padding))
-        for i_k, k_val in enumerate(k): # TODO vectorize
-            for i_steering, steering_val in enumerate(steering):
-                for x in range(self._nx):
-                    for y in range(self._ny):
-                        d = front_padding + shifts_samples[i_k, i_steering, x, y]
-                        result[i_k, i_steering, d:d+t] += rx_pattern[x, y, :]
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
 
+    f = 100e3
+    C = 1500
+    l = C / f
 
-        return result
+    array = RectangularArray(10, 5, l / 2, UniformContinuousAngularDistribution(
+        min_az=-pi, max_az=pi, min_el=0, max_el=pi
+    ))
 
-    @property
-    def nx(self):
-        return self._nx
+    beamformer = DASBeamformer(array, C)
 
-    @property
-    def ny(self):
-        return self._nx
+    steering_az = np.linspace(-pi, pi, 16, endpoint=False)
+    steering_el = np.linspace(0, pi / 2, 4, endpoint=False)  # elevation from x-y plane toward +z
+    steering_dir = az_el_to_direction_grid(steering_az, steering_el)
+    steering_dir = steering_dir.reshape(-1, 3)
 
-if __name__ == '__main__':
-    arr = RectangularArray(8, 8, 0.0075, UniformContinuousAngularDistribution)
-    f = 100_000
-    c = 1500
-    w = 2*pi*f
-    wavelength = c / f
-    k = 2*pi / wavelength
+    looking_res_deg = 1
+    looking_az = np.linspace(-pi, pi, 360 // looking_res_deg)
+    looking_el = np.linspace(0, pi / 2, 90 // looking_res_deg)  # elevation from x-y plane toward +z
+    looking_dir = az_el_to_direction_grid(looking_az, looking_el)
 
-    azimuth = np.linspace(0, 2 * np.pi, 360)
-    elevation = np.linspace(0, np.pi / 2, 200)
-    azimuth, elevation = np.meshgrid(azimuth, elevation)
-    azimuth = azimuth.reshape(-1)
-    elevation = elevation.reshape(-1)
+    k = 2 * pi * f / C
 
-    x = np.cos(elevation) * np.cos(azimuth)
-    y = np.cos(elevation) * np.sin(azimuth)
-    z = np.sin(elevation)
+    gain_db = beamformer.get_gain(steering_dir, looking_dir.reshape(-1, 3), k)
+    gain_db = gain_db.reshape((steering_dir.shape[0], looking_dir.shape[0], looking_dir.shape[1]))
 
-    theta = np.transpose([x, y, z])
+    for steering_i in range(steering_dir.shape[0]):
+        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        c = ax.pcolormesh(looking_az, looking_el, gain_db[steering_i].T, shading='auto', vmin=-80, vmax=0, cmap='viridis')
+        plt.colorbar(c)
+        steering_az_el = direction_to_az_el(steering_dir)
+        ax.scatter(steering_az_el[steering_i, 0], steering_az_el[steering_i, 1], c="r")
 
-    steering_az = pi / 4
-    steering_el = pi / 4
-
-    x = np.cos(steering_el) * np.cos(steering_az)
-    y = np.cos(steering_el) * np.sin(steering_az)
-    z = np.sin(steering_el)
-    steering = np.array([[x, y, z]])
-
-    dir = arr.get_gain(steering, theta, np.array([k]))
-
-    fig = plt.figure(figsize=(10, 7))
-    ax = fig.add_subplot(111, projection='3d')
-
-    print(np.max(dir))
-    dir -= np.min(dir)
-    theta *= dir[0]
-
-    theta = theta.reshape((200, 360, 3))
-
-    surface = ax.plot_surface(theta[:,:, 0], theta[:,:, 1], theta[:,:, 2], cmap='viridis', edgecolor='k', alpha=0.8)
-    fig.colorbar(surface, shrink=0.5, aspect=10, label='Magnitude')
-    plt.show()
+        plt.show()
