@@ -53,7 +53,7 @@ scene = Scene(
 trajectory = Trajectory(Path('experiments/circular_path.csv'))
 
 T_tx = T_rx = 1e-6 # 1 MHz
-code = PMBarker(BarkerCode.Sequence.BARKER_7, 100_000, T_tx, 100e-6)
+code = PMBarker(BarkerCode.Sequence.BARKER_2, 100_000, T_tx, 100e-6)
 
 result = run_experiment(Path('exp_res.pkl'),
                         scene,

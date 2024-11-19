@@ -79,16 +79,15 @@ gain = gain[0].reshape((len(steering_dir),) + looking_dir.shape[:2])
 #
 # plt.show()
 
-filter = cheby1(4, 3, 0.1*fc, btype='low', fs=1/T_rx, output='sos')
+filter = cheby1(4, 0.1, code.carrier, btype='low', fs=1/T_rx, output='sos')
 
 # interference wave
-T_m = len(code.baseband) * T_rx
-f_m = 1 / T_m
-w_m = 2*pi*f_m # rad / s
+# T_m = len(code.baseband) * T_rx
+# f_m = 1 / T_m
+f_m = code.carrier
+w_m = 2 * pi * f_m # rad / s
 # w_m_sample = w_m * T_rx  # rad / sample
 k_m = w_m / C
-
-print(f'T_m = {T_m}, f_m = {f_m}, lambda_m = {C / f_m}')
 
 vehicle_poses = [
     o3d.geometry.TriangleMesh.create_coordinate_frame(size=2).transform(p)
@@ -113,15 +112,22 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
     _, pose = trajectory[pose_i]
 
     for steering_i in range(len(steering_dir)):
-        raw_correlation = correlate(beamformed_signal[steering_i], code.baseband, mode='full')
+        reference_signal = np.cos(2 * np.pi * code.carrier * T_rx * np.arange(len(beamformed_signal[0])))
+        demod_signal = reference_signal * beamformed_signal[0]
 
-        correlation = sosfilt(filter, np.abs(raw_correlation)) # ensure shift here is correct
+        filt_demod_signal = sosfilt(filter, demod_signal)
 
-        # plt.subplot(3, 1, 1)
-        # plt.plot(beamformed_signal[steering_i])
-        # plt.subplot(3, 1, 2)
-        # plt.plot(correlation)
-        # plt.show()
+        correlation = correlate(filt_demod_signal, code._digital, mode="valid")
+
+        plt.subplot(4, 1, 1)
+        plt.plot(reference_signal)
+        plt.subplot(4, 1, 2)
+        plt.plot(demod_signal)
+        plt.subplot(4, 1, 3)
+        plt.plot(filt_demod_signal)
+        plt.subplot(4, 1, 4)
+        plt.plot(correlation)
+        plt.show()
 
         # correlation_tt = np.arange(len(correlation)) * T_rx
         # plt.plot(correlation_tt, correlation)

@@ -37,6 +37,7 @@ class PMBarker(BarkerCode):
         result_samples = int(T_bit * len(code) / T_sample)
         bit_samples = int(T_bit / T_sample)
         baseband = np.zeros((result_samples,))
+        digital = np.zeros((result_samples,))
         tt = np.arange(0, bit_samples) * T_sample
         omega = 2 * pi * f
         bit_high = np.cos(tt * omega)
@@ -44,7 +45,9 @@ class PMBarker(BarkerCode):
         for i, bit in enumerate(code):
             shift = i * bit_samples
             baseband[shift:shift + bit_samples] = bit_high if bit == 1 else bit_low
+            digital[shift:shift + bit_samples] = 1.0 if bit == 1 else -1.0
         self._baseband = baseband
+        self._digital = digital
         self._carrier = f
 
 
