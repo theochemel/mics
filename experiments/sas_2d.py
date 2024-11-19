@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy
 
 # grid parameters
 nx = 100
@@ -30,10 +31,10 @@ grid = np.array(np.meshgrid(xx, yy)).T
 
 vals = np.zeros((nx, ny), dtype=np.complex64)
 
-targets = np.empty((10, 2))
-for i in range(0, 10):
-    ang = i * np.pi / 5
-    targets[i] = np.array([np.cos(ang)*2+5, np.sin(ang)*2 + 5])
+targets = np.array(([3, 5], [4, 6], [2, 2]))
+# for i in range(0, 10):
+#     ang = i * np.pi / 5
+#     targets[i] = np.array([np.cos(ang)*2+5, np.sin(ang)*2 + 5])
 
 array = np.arange(array_n) * array_spacing
 array_pos = np.arange(array_start_pos, array_end_pos, array_step)
@@ -58,20 +59,32 @@ for steering_i, steering_angle in enumerate(angles):
 
 fig = plt.figure()
 
+dist = scipy.stats.norm
+
+T_sample = grid_size / C
+
 for arr_x in array_pos:
     for steering_i, steering_angle in enumerate(angles):
         steering_dir = np.array([np.sin(steering_angle), np.cos(steering_angle)])
-        phi = 0
+        range_intensity = np.zeros((
+            int(((nx**2+ny**2)**0.5 * grid_size / C) / T_sample * 2 + 1),
+        )) # intensity(t)
+        tt = np.arange(len(range_intensity)) * T_sample
+
         for target in targets:
             arr_target = np.array([target[0] - arr_x, target[1]])
             target_range = np.linalg.norm(arr_target)
             target_dir = arr_target / target_range
-            phi += np.exp(2j * km * target_range) * gain(target_dir, steering_dir)
+            range_intensity += dist.pdf(tt, loc=(2 * target_range / C), scale=3 * T_sample)
+
+        # plt.plot(tt, range_intensity)
+        # plt.show()
 
         for i_x, x in enumerate(xx):
             for i_y, y in enumerate(yy):
-                r_m = np.array([x, y]) - np.array([arr_x, 0])
-                psi = phi * np.exp(-2j*km*np.linalg.norm(r_m))
+                r_m = np.linalg.norm(np.array([x, y]) - np.array([arr_x, 0]))
+                range_samples = int((2 * r_m / C) / T_sample)
+                psi = range_intensity[range_samples] * np.exp(-2j*km*r_m)
                 vals[i_x, i_y] += psi
 
     # Plot magnitude of vals
