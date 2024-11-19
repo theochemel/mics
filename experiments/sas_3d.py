@@ -47,9 +47,6 @@ scene = Scene([], [], geometry)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-map = OccupancyGridMap(100, 100, 100, 0.2,
-                       SE3.Rt(SO3(), (-10, -10, -10)),
-                       device)
 
 # Configure steering angles
 # steering_az = np.linspace(-pi, pi, 18)
@@ -82,12 +79,16 @@ gain = gain[0].reshape((len(steering_dir),) + looking_dir.shape[:2])
 filter = cheby1(4, 0.1, code.carrier, btype='low', fs=1/T_rx, output='sos')
 
 # interference wave
-# T_m = len(code.baseband) * T_rx
-# f_m = 1 / T_m
-f_m = code.carrier
+T_m = len(code.baseband) * T_rx
+f_m = 1 / T_m
 w_m = 2 * pi * f_m # rad / s
-# w_m_sample = w_m * T_rx  # rad / sample
 k_m = w_m / C
+l_m = C / f_m
+
+map_size = l_m / 2
+map = OccupancyGridMap(100, 100, 100, map_size,
+                       SE3.Rt(SO3(), (-50 * map_size, -50 * map_size, -50 * map_size)),
+                       device)
 
 vehicle_poses = [
     o3d.geometry.TriangleMesh.create_coordinate_frame(size=2).transform(p)
@@ -107,7 +108,6 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
     pose_pattern = rx_pattern[pattern_i].reshape((array.nx, array.ny, -1))
 
     beamformed_signal = array.beamform_receive(k, steering_dir, pose_pattern, T_rx)[0]
-    # beamformed_signal = pose_pattern[0]
 
     _, pose = trajectory[pose_i]
 
@@ -119,25 +119,8 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
 
         correlation = correlate(filt_demod_signal, code._digital, mode="valid")
 
-        plt.subplot(4, 1, 1)
-        plt.plot(reference_signal)
-        plt.subplot(4, 1, 2)
-        plt.plot(demod_signal)
-        plt.subplot(4, 1, 3)
-        plt.plot(filt_demod_signal)
-        plt.subplot(4, 1, 4)
-        plt.plot(correlation)
-        plt.show()
-
-        # correlation_tt = np.arange(len(correlation)) * T_rx
-        # plt.plot(correlation_tt, correlation)
-        # plt.show()
-
-        # range = (np.arange(len(correlation)) * T_rx * C) / 2.0
         range_spacing = (T_rx * C) / 2.0
-        # intensity = correlation * np.exp(2j * w_m_sample * np.arange(len(correlation)))
-        intensity = correlation / 1e6
-        # intensity /= intensity.max()
+        intensity = correlation
 
         intensities.append(intensity)
         signals.append(rx_pattern[pattern_i][0])
@@ -154,20 +137,20 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
     map_abs = np.abs(map.get_map().cpu().numpy())
     map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
 
-    ts = np.array([(map._world_t_map.inv() @ pose[1]).t for pose in trajectory._poses])
+ts = np.array([(map._world_t_map.inv() @ pose[1]).t for pose in trajectory._poses])
 
-    plt.subplot(1, 3, 1)
-    plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
-    plt.title("X = 0")
-    plt.subplot(1, 3, 2)
-    plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
-    plt.title("Y = 0")
-    plt.subplot(1, 3, 3)
-    plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
-    plt.plot(ts[:, 0] / map._size, ts[:, 1] / map._size, c="b")
-    plt.scatter(ts[pose_i, 0] / map._size, ts[pose_i, 1] / map._size, c="r")
-    plt.title("Z = 0")
-    plt.show()
+plt.subplot(1, 3, 1)
+plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
+plt.title("X = 0")
+plt.subplot(1, 3, 2)
+plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
+plt.title("Y = 0")
+plt.subplot(1, 3, 3)
+plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
+# plt.plot(ts[:, 0] / map._size, ts[:, 1] / map._size, c="b")
+# plt.scatter(ts[pose_i, 0] / map._size, ts[pose_i, 1] / map._size, c="r")
+plt.title("Z = 0")
+plt.show()
 
 cmap = matplotlib.cm.viridis
 norm = matplotlib.colors.Normalize(vmin=0, vmax=len(intensities) - 1)

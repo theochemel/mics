@@ -116,7 +116,7 @@ class MotionTracer:
 
         # Allocate the result array
         sources_n_samples = wave.shape[1]
-        sinks_n_samples = int((max_delay + sources_n_samples * T_tx) // T_rx)
+        sinks_n_samples = int((max_delay + sources_n_samples * T_tx + 1e-3) // T_rx)
         sinks_wave = np.zeros((n_sinks, sinks_n_samples), dtype=np.float64)
 
         t_tx = np.arange(sources_n_samples) * T_tx

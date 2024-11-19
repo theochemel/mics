@@ -63,7 +63,7 @@ class OccupancyGridMap:
         directivity_lookup = torch.cat((az, el), dim=-1).flatten(0, 2).reshape((1, 1, -1, 2))
         directivity = directivity.reshape((1, 1) + directivity.shape)
         gain = F.grid_sample(directivity, directivity_lookup)[0, 0, 0, :]
-        grid_gain = gain.unflatten(0, self.world_t_grid.shape[:3])
+        grid_gain = gain.unflatten(0, self.world_t_grid.shape[:3]) # TODO: THIS SEEMS TO BE WRONG
 
         grid_range = array_t_grid_norm
         grid_range_index = (grid_range / range_spacing).to(torch.int)
@@ -77,22 +77,6 @@ class OccupancyGridMap:
             # * grid_gain[grid_update_valid] \
 
         self._map = self._map + grid_update
-
-        # plt.imshow((grid_update[:, :, grid_update.shape[2] // 2]).abs())
-        # plt.show()
-
-        pass
-
-        # psi = phi * torch.exp(-2j * np.pi * k * array_t_grid_norm) * gain * array_t_grid_norm**2
-
-        # phi_norm = np.abs(psi.cpu().numpy())
-        # phi_norm = (phi_norm - np.min(phi_norm)) / (np.max(phi_norm) - np.min(phi_norm))
-
-        # plot_slices_with_colormap(phi_norm, self.world_t_grid,
-        #                           geometry=visualization_geometry,
-        #                           n_slices=15,
-        #                           vehicle_pose=world_t_array)
-        # self._map += psi
 
     def get_map(self):
         return self._map
