@@ -10,9 +10,9 @@ from tqdm import tqdm
 import matplotlib
 
 from sonar.occupancy_grid import OccupancyGridMap
-from sonar.phased_array import RectangularArray
-from sonar.utils import BarkerCode, az_el_to_direction_grid
-from tracer.geometry import db_to_amplitude
+from sonar.phased_array import RectangularArray, DASBeamformer
+from sonar.utils import BarkerCode
+from tracer.geometry import db_to_amplitude, az_el_to_direction_grid
 from tracer.motion_random_tracer import Trajectory
 from tracer.scene import Surface, SimpleMaterial, Scene
 
@@ -48,10 +48,13 @@ scene = Scene([], [], geometry)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+beamformer = DASBeamformer(array, C)
 
 # Configure steering angles
-steering_az = np.linspace(-pi, pi, 18)
-steering_el = np.linspace(0, pi / 2, 5, endpoint=True)  # elevation from x-y plane toward +z
+# steering_az = np.array([-pi / 2, pi / 2])
+# steering_el = np.linspace(0, pi / 2, 4, endpoint=False)
+steering_az = np.array([0])
+steering_el = np.array([0])
 steering_dir = az_el_to_direction_grid(steering_az, steering_el)
 steering_dir = steering_dir.reshape(-1, 3)
 
@@ -63,14 +66,8 @@ looking_dir = az_el_to_direction_grid(looking_az, looking_el)
 
 k = 2 * pi * code.carrier / C
 
-gain_db = array.get_gain(steering_dir, looking_dir.reshape(-1, 3), k)
-gain = db_to_amplitude(gain_db)
-gain = gain.reshape((steering_dir.shape[0], looking_dir.shape[0]))
-
-# fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-# c = ax.pcolormesh(looking_az, looking_el, gain[0].T, shading='auto', cmap='viridis')
-#
-# plt.show()
+gain_db = beamformer.get_gain(steering_dir, looking_dir.reshape(-1, 3), k)
+gain_db = gain_db.reshape((steering_dir.shape[0], looking_dir.shape[0], looking_dir.shape[1]))
 
 filter = cheby1(4, 0.1, code.carrier, btype='low', fs=1/T_rx, output='sos')
 
@@ -101,15 +98,14 @@ signals = []
 
 for pose_i in tqdm(range(1, len(rx_pattern))):
     pattern_i = pose_i - 1
-    pose_pattern = rx_pattern[pattern_i].reshape((array.nx, array.ny, -1))
 
-    beamformed_signal = array.beamform_receive(k, steering_dir, pose_pattern, T_rx)[0]
+    beamformed_signal = beamformer.beamform_receive(steering_dir, rx_pattern[pattern_i], T_rx, k)
 
     _, pose = trajectory[pose_i]
 
     for steering_i in range(len(steering_dir)):
         reference_signal = np.cos(2 * np.pi * code.carrier * T_rx * np.arange(len(beamformed_signal[0])))
-        demod_signal = reference_signal * beamformed_signal[0]
+        demod_signal = reference_signal * beamformed_signal[steering_i]
 
         filt_demod_signal = sosfilt(filter, demod_signal)
 
@@ -121,36 +117,34 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
         intensities.append(intensity)
         signals.append(rx_pattern[pattern_i][0])
 
-        steering_gain = gain[steering_i]
+        steering_gain = db_to_amplitude(gain_db[steering_i])
 
         map.add_measurement(range_spacing,
                             torch.tensor(intensity, device=device),
+                            torch.tensor(steering_gain, device=device),
                             k_m,
-                            torch.tensor(gain[steering_i], device=device),
                             pose,
                             visualization_geometry=geometry)
 
     map_abs = np.abs(map.get_map().cpu().numpy())
     map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
 
-ts = np.array([(map._world_t_map.inv() @ pose[1]).t for pose in trajectory._poses])
+    ts = np.array([(map._world_t_map.inv() @ pose[1]).t for pose in trajectory._poses])
 
-plt.subplot(1, 3, 1)
-plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
-plt.title("X = 0")
-plt.subplot(1, 3, 2)
-plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
-plt.title("Y = 0")
-plt.subplot(1, 3, 3)
-plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
-# plt.plot(ts[:, 0] / map._size, ts[:, 1] / map._size, c="b")
-# plt.scatter(ts[pose_i, 0] / map._size, ts[pose_i, 1] / map._size, c="r")
-plt.title("Z = 0")
-plt.show()
+    plt.subplot(1, 3, 1)
+    plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
+    plt.title("X = 0")
+    plt.subplot(1, 3, 2)
+    plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
+    plt.title("Y = 0")
+    plt.subplot(1, 3, 3)
+    plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
+    plt.title("Z = 0")
+    plt.show()
 
-cmap = matplotlib.cm.viridis
-norm = matplotlib.colors.Normalize(vmin=0, vmax=len(intensities) - 1)
-colors = cmap(norm(range(len(intensities))))
+    cmap = matplotlib.cm.viridis
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=len(intensities) - 1)
+    colors = cmap(norm(range(len(intensities))))
 
 fig, axs = plt.subplots(2)
 

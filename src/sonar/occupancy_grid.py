@@ -40,8 +40,8 @@ class OccupancyGridMap:
     def add_measurement(self,
                         range_spacing: float,
                         intensity: torch.Tensor,
+                        gain: torch.Tensor,
                         k: float,
-                        directivity: torch.Tensor,
                         world_t_array: SE3,
                         visualization_geometry=None):
 
@@ -57,13 +57,22 @@ class OccupancyGridMap:
         del array_t_grid
 
         az = torch.atan2(array_t_grid_unit[..., 1], array_t_grid_unit[..., 0])
-        el = torch.arcsin(array_t_grid_unit[..., 2])
+        el = (pi / 2) - torch.atan2(array_t_grid_unit[..., 2], torch.sqrt(array_t_grid_unit[..., 0] ** 2 + array_t_grid_unit[..., 1] ** 2))
         del array_t_grid_unit
 
-        directivity_lookup = torch.cat((az, el), dim=-1).flatten(0, 2).reshape((1, 1, -1, 2))
-        directivity = directivity.reshape((1, 1) + directivity.shape)
-        gain = F.grid_sample(directivity, directivity_lookup)[0, 0, 0, :]
+        # Remap el from [0, pi / 2] to [-1, 1]
+        # Remap az from [-pi, pi] to [-1, 1]
+        gain_lookup = torch.cat((4 * el / pi - 1, az / pi), dim=-1).flatten(0, 2).reshape((1, 1, -1, 2))
+        gain = gain.reshape((1, 1) + gain.shape)
+
+        gain = F.grid_sample(gain, gain_lookup)[0, 0, 0, :]
         grid_gain = gain.unflatten(0, self.world_t_grid.shape[:3]) # TODO: THIS SEEMS TO BE WRONG
+
+        # plt.subplot(2, 1, 1)
+        # plt.imshow(az[:, :, grid_gain.shape[2] // 2])
+        # plt.subplot(2, 1, 2)
+        # plt.imshow(el[:, :, grid_gain.shape[2] // 2])
+        # plt.show()
 
         grid_range = array_t_grid_norm
         grid_range_index = (grid_range / range_spacing).to(torch.int)
@@ -73,8 +82,8 @@ class OccupancyGridMap:
         grid_update = torch.zeros_like(self._map)
         grid_update[grid_update_valid] = \
             intensity[grid_range_index[grid_update_valid]] \
-            * torch.exp(-1.0j * k * (2 * grid_range[grid_update_valid]))
-            # * grid_gain[grid_update_valid] \
+            * torch.exp(-1.0j * k * (2 * grid_range[grid_update_valid])) \
+            * grid_gain[grid_update_valid]
 
         self._map = self._map + grid_update
 

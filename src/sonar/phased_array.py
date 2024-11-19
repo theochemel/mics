@@ -128,30 +128,38 @@ class DASBeamformer:
         :return (n_steering, [t'/T_rx]) beamformed signals for each steering direction
         """
 
+        n_elems, n_samples = rx_pattern.shape
+        n_steering = steering_dir.shape[0]
+
         delays = self.steer(steering_dir, k)
+        time_delays = delays / (k * self._C)
 
-        # sec_per_rad = 1 / (k * self._C)
-        # time_delays = delays * sec_per_rad[:, np.newaxis, np.newaxis, np.newaxis]
-        # shifts_samples = np.round(delays / T).astype(np.int64)
-        #
-        # front_padding = np.abs(np.min(shifts_samples))
-        # back_padding = np.max(shifts_samples)
-        #
-        # t = rx_pattern.shape[2]
-        # n_k = len(k)
-        # n_steering = len(steering)
-        #
-        # result = np.zeros((n_k, n_steering, front_padding + t + back_padding))
-        # for i_k, k_val in enumerate(k): # TODO vectorize
-        #     for i_steering, steering_val in enumerate(steering):
-        #         for x in range(self._nx):
-        #             for y in range(self._ny):
-        #                 d = front_padding + shifts_samples[i_k, i_steering, x, y]
-        #                 result[i_k, i_steering, d:d+t] += rx_pattern[x, y, :]
-        #
-        #
-        # return result
+        sample_delays = np.round(time_delays / T).astype(int)
 
+        back_padding = np.max(sample_delays)
+
+        result = np.zeros((n_steering, n_samples + back_padding))
+
+        for steering_i in range(n_steering):
+            for elem_i in range(n_elems):
+                d = sample_delays[steering_i, elem_i]
+
+                input_start = 0
+                input_end = n_samples
+                output_start = d
+                output_end = d + n_samples
+
+                if output_start < 0:
+                    input_start += -output_start
+                    output_start = 0
+
+                if output_end >= result.shape[1]:
+                    input_end -= (output_end - result.shape[1] + 1)
+                    output_end = result.shape[1] - 1
+
+                result[steering_i, output_start:output_end] += rx_pattern[elem_i, input_start:input_end]
+
+        return result
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
