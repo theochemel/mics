@@ -54,14 +54,14 @@ beamformer = DASBeamformer(array, C)
 # steering_az = np.array([-pi / 2, pi / 2])
 # steering_el = np.linspace(0, pi / 2, 4, endpoint=False)
 steering_az = np.array([0])
-steering_el = np.array([0])
+steering_el = np.array([pi / 2])
 steering_dir = az_el_to_direction_grid(steering_az, steering_el)
 steering_dir = steering_dir.reshape(-1, 3)
 
 # Gain LUT
 looking_res_deg = 1
 looking_az = np.linspace(-pi, pi, 360 // looking_res_deg)
-looking_el = np.linspace(0, pi / 2, 90 // looking_res_deg)  # elevation from x-y plane toward +z
+looking_el = np.linspace(0, pi, 180 // looking_res_deg)  # elevation from x-y plane toward +z
 looking_dir = az_el_to_direction_grid(looking_az, looking_el)
 
 k = 2 * pi * code.carrier / C
@@ -126,25 +126,25 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
                             pose,
                             visualization_geometry=geometry)
 
-    map_abs = np.abs(map.get_map().cpu().numpy())
-    map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
+map_abs = np.abs(map.get_map().cpu().numpy())
+map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
 
-    ts = np.array([(map._world_t_map.inv() @ pose[1]).t for pose in trajectory._poses])
+ts = np.array([(map._world_t_map.inv() @ pose[1]).t for pose in trajectory._poses])
 
-    plt.subplot(1, 3, 1)
-    plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
-    plt.title("X = 0")
-    plt.subplot(1, 3, 2)
-    plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
-    plt.title("Y = 0")
-    plt.subplot(1, 3, 3)
-    plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
-    plt.title("Z = 0")
-    plt.show()
+plt.subplot(1, 3, 1)
+plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
+plt.title("X = 0")
+plt.subplot(1, 3, 2)
+plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
+plt.title("Y = 0")
+plt.subplot(1, 3, 3)
+plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
+plt.title("Z = 0")
+plt.show()
 
-    cmap = matplotlib.cm.viridis
-    norm = matplotlib.colors.Normalize(vmin=0, vmax=len(intensities) - 1)
-    colors = cmap(norm(range(len(intensities))))
+cmap = matplotlib.cm.viridis
+norm = matplotlib.colors.Normalize(vmin=0, vmax=len(intensities) - 1)
+colors = cmap(norm(range(len(intensities))))
 
 fig, axs = plt.subplots(2)
 

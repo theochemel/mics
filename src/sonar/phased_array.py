@@ -36,7 +36,7 @@ class RectangularArray(Array):
         t_y = t_y.flatten()
 
         self._positions = np.stack((
-            t_x, t_y, np.zeros_like(t_x),
+            np.zeros_like(t_x), t_x, t_y,
         ), axis=-1)
 
         self._ang_dist = ang_dist
@@ -136,7 +136,7 @@ class DASBeamformer:
 
         sample_delays = np.round(time_delays / T).astype(int)
 
-        back_padding = np.max(sample_delays)
+        back_padding = np.max(sample_delays) + 1
 
         result = np.zeros((n_steering, n_samples + back_padding))
 
