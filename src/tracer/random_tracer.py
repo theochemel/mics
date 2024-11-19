@@ -104,12 +104,13 @@ class Path:
         n_sinks = len(sink_velocities)
         n_segments = len(self._segment_hit_positions)
 
-        transforms = np.empty((n_segments, n_sinks, 3))
+        attenuations = np.empty((n_segments, n_sinks))
+        delays = np.empty((n_segments, n_sinks))
+        doppler_coeffs = np.empty((n_segments, n_sinks))
 
         out_segment = self._segment_hit_positions[0] - self._source_position
         e_out = out_segment / np.linalg.norm(out_segment)
 
-        doppler_coeff_world = 1 + e_out.dot(source_velocity) / self._c
         total_delay = 0
         total_attenuation = 0
 
@@ -122,13 +123,12 @@ class Path:
             sink_velocities_proj = np.sum(sink_velocities*sink_directions, axis=1)
             static_delays = self._segment_sink_delays[i] + total_delay
 
-            sink_delays = static_delays / (1 - sink_velocities_proj / self._c)
-            sink_doppler_coeffs = 1 - sink_velocities_proj / self._c
-            sink_attenuations = total_attenuation + self._segment_sink_attenuations[i]
+            attenuations[i] = total_attenuation + self._segment_sink_attenuations[i]
+            delays[i] = static_delays # TODO: Not accounting for vehicle moving forward to meet signal
+            # doppler_coeffs = 1 - sink_velocities_proj / self._c
+            doppler_coeffs[i] = np.nan
 
-            transforms[i, :, :] = np.transpose([sink_attenuations, sink_delays, sink_doppler_coeffs])
-
-        return transforms
+        return attenuations, delays, doppler_coeffs
 
 
 class Tracer:
@@ -302,8 +302,7 @@ class Tracer:
                 sink_directions,
             ), axis=-1)
 
-            sink_directions_incoming = transform_vectors(np.linalg.inv(self._scene.sink_poses), sink_directions)
-#            sink_directions_incoming = transform_vectors(self._scene.sink_poses.inv(), sink_directions)
+            sink_directions_incoming = -transform_vectors(np.linalg.inv(self._scene.sink_poses), sink_directions)
 
             sink_az_el_outgoing = direction_to_az_el(sink_directions)
             sink_az_el_incoming = direction_to_az_el(sink_directions_incoming)
@@ -326,7 +325,7 @@ class Tracer:
                 sink_visible=visible,
                 sink_positions=sink_positions,
                 sink_delays=sink_distances / self._c,
-                sink_attenuations=np.where(visible, sink_attenuation_outgoing + sink_attenuation_incoming, -np.inf), # TODO: Evaluate sink PDF here in the visible case
+                sink_attenuations=np.where(visible, sink_attenuation_outgoing + sink_attenuation_incoming, -np.inf),
             )
 
     def visualize(self):
@@ -340,15 +339,26 @@ class Tracer:
         o3d.visualization.draw_geometries(geometries)
 
 
-    def get_propagation_transforms(self, source_velocities: np.array, sink_velocities: np.array) -> np.array:
+    def get_propagation_transforms(self, source_velocities: np.array, sink_velocities: np.array):
 
-        transforms = defaultdict(list)
+        attenuations = defaultdict(list)
+        delays = defaultdict(list)
+        doppler_coeffs = defaultdict(list)
 
         for i, path in enumerate(self._paths):
             path_transforms = path.get_transforms(source_velocities[path.source_id], sink_velocities)  # [segments, sinks, :]
             if path_transforms is None:
                 continue
-            for sink_id in range(len(sink_velocities)):
-                transforms[(path.source_id, sink_id)].extend(path_transforms[:, sink_id, :])
 
-        return {key: np.array(val) for key, val in transforms.items()}
+            path_attenuations, path_delays, path_doppler_coeffs = path_transforms
+
+            for sink_id in range(len(sink_velocities)):
+                    attenuations[path.source_id].extend(path_attenuations)
+                    delays[path.source_id].extend(path_delays)
+                    doppler_coeffs[path.source_id].extend(path_doppler_coeffs)
+
+        attenuations = { key: np.array(val) for key, val in attenuations.items() }
+        delays = { key: np.array(val) for key, val in delays.items() }
+        doppler_coeffs = { key: np.array(val) for key, val in doppler_coeffs.items() }
+
+        return attenuations, delays, doppler_coeffs

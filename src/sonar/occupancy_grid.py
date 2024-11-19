@@ -73,7 +73,7 @@ class OccupancyGridMap:
         grid_update = torch.zeros_like(self._map)
         grid_update[grid_update_valid] = \
             intensity[grid_range_index[grid_update_valid]] \
-            * torch.exp(2j * k * grid_range[grid_update_valid])
+            * torch.exp(-1.0j * k * (2 * grid_range[grid_update_valid]))
             # * grid_gain[grid_update_valid] \
 
         self._map = self._map + grid_update

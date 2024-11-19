@@ -37,7 +37,7 @@ sand_material = SimpleMaterial(
 surfaces = [
     Surface(
         id=f"cube",
-        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, 0.0])),
+        pose=SE3.Rt(SO3(), np.array([5.0, 0.0, 0.0])),
         material=sand_material,
         mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
     ),
@@ -61,6 +61,6 @@ result = run_experiment(Path('exp_res.pkl'),
                         code,
                         T_tx,
                         T_rx,
-                        n_rays=10000,
+                        n_rays=1000,
                         array=arr,
                         visualize=False)

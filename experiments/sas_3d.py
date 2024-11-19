@@ -7,6 +7,7 @@ import torch
 from scipy.signal import correlate, cheby1, sosfilt
 from spatialmath import SE3, SO3
 from tqdm import tqdm
+import matplotlib
 
 from sonar.occupancy_grid import OccupancyGridMap
 from sonar.phased_array import RectangularArray
@@ -84,7 +85,7 @@ filter = cheby1(4, 3, 0.1*fc, btype='low', fs=1/T_rx, output='sos')
 T_m = len(code.baseband) * T_rx
 f_m = 1 / T_m
 w_m = 2*pi*f_m # rad / s
-w_m_sample = w_m * T_rx  # rad / sample
+# w_m_sample = w_m * T_rx  # rad / sample
 k_m = w_m / C
 
 print(f'T_m = {T_m}, f_m = {f_m}, lambda_m = {C / f_m}')
@@ -98,6 +99,9 @@ print(vehicle_poses)
 
 # geometry = scene.visualization_geometry() + vehicle_poses
 geometry = vehicle_poses
+
+intensities = []
+signals = []
 
 for pose_i in tqdm(range(1, len(rx_pattern))):
     pattern_i = pose_i - 1
@@ -113,9 +117,9 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
 
         correlation = sosfilt(filter, np.abs(raw_correlation)) # ensure shift here is correct
 
-        # plt.subplot(2, 1, 1)
-        # plt.plot(raw_correlation)
-        # plt.subplot(2, 1, 2)
+        # plt.subplot(3, 1, 1)
+        # plt.plot(beamformed_signal[steering_i])
+        # plt.subplot(3, 1, 2)
         # plt.plot(correlation)
         # plt.show()
 
@@ -125,8 +129,12 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
 
         # range = (np.arange(len(correlation)) * T_rx * C) / 2.0
         range_spacing = (T_rx * C) / 2.0
-        intensity = correlation * np.exp(2j * w_m_sample * np.arange(len(correlation)))
-        intensity /= intensity.max()
+        # intensity = correlation * np.exp(2j * w_m_sample * np.arange(len(correlation)))
+        intensity = correlation / 1e6
+        # intensity /= intensity.max()
+
+        intensities.append(intensity)
+        signals.append(rx_pattern[pattern_i][0])
 
         steering_gain = gain[steering_i]
 
@@ -137,23 +145,39 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
                             pose,
                             visualization_geometry=geometry)
 
-map_abs = np.abs(map.get_map().cpu().numpy())
-map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
+    map_abs = np.abs(map.get_map().cpu().numpy())
+    map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
 
-    # plt.subplot(1, 3, 1)
-    # plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
-    # plt.title("X = 0")
-    # plt.subplot(1, 3, 2)
-    # plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
-    # plt.title("Y = 0")
-    # plt.subplot(1, 3, 3)
-    # plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
-    # plt.title("Z = 0")
-    # plt.show()
+    ts = np.array([(map._world_t_map.inv() @ pose[1]).t for pose in trajectory._poses])
+
+    plt.subplot(1, 3, 1)
+    plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
+    plt.title("X = 0")
+    plt.subplot(1, 3, 2)
+    plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
+    plt.title("Y = 0")
+    plt.subplot(1, 3, 3)
+    plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
+    plt.plot(ts[:, 0] / map._size, ts[:, 1] / map._size, c="b")
+    plt.scatter(ts[pose_i, 0] / map._size, ts[pose_i, 1] / map._size, c="r")
+    plt.title("Z = 0")
+    plt.show()
+
+cmap = matplotlib.cm.viridis
+norm = matplotlib.colors.Normalize(vmin=0, vmax=len(intensities) - 1)
+colors = cmap(norm(range(len(intensities))))
+
+fig, axs = plt.subplots(2)
+
+for i, (intensity, signal) in enumerate(zip(intensities, signals)):
+    axs[0].plot(intensity, c=colors[i])
+    axs[1].plot(signal, c=colors[i])
+
+plt.show()
 
 plot_slices_with_colormap(map_abs, map.world_t_grid,
                           geometry=geometry,
-                          n_slices=10,
+                          n_slices=30,
                           axis=1,
                           vehicle_pose=pose)
 

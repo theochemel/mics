@@ -7,7 +7,7 @@ from spatialmath import SO3
 def wrap2pi(angle):
     return np.arctan2(np.sin(angle), np.cos(angle))
 
-def generate_circle_coordinates(center, radius, velocity, duration, sample_rate, output_file):
+def generate_circle_coordinates(center, target, radius, velocity, duration, sample_rate, output_file):
     """
     Generate 3D coordinates of a robot moving in a circle and save them to a CSV file.
 
@@ -22,6 +22,7 @@ def generate_circle_coordinates(center, radius, velocity, duration, sample_rate,
 
     # Unpack the center coordinates
     cx, cy, cz = center
+    tx, ty, tz = target
 
     # Calculate the circle's angular velocity (rad/s)
     angular_velocity = velocity / radius
@@ -47,11 +48,11 @@ def generate_circle_coordinates(center, radius, velocity, duration, sample_rate,
             z = cz  # Constant z-coordinate
 
             # Roll, pitch, yaw (all set to 0)
-            # roll = 0.0
-            # pitch = 0.0
-            # yaw = np.arctan2(cy - y, cx - x)
+            roll = 0.0
+            pitch = 0.0
+            yaw = np.arctan2(ty - y, tx - x)
 
-            world_t_vehicle = SO3.RPY(np.pi, 0.0, 0.0) # x forward, z up
+            world_t_vehicle = SO3.RPY(roll, pitch, yaw) @ SO3.TwoVectors(z="x", y="-z")
             world_t_array = world_t_vehicle
             roll, pitch, yaw = world_t_array.rpy()
 
@@ -61,11 +62,12 @@ def generate_circle_coordinates(center, radius, velocity, duration, sample_rate,
     print(f"Data saved to {output_file}")
 
 # Example usage
+target_point = (5.0, 0.0, 0.0)
 center_point = (0.0, 0.0, 0.0)  # Center of the circle at (x, y, z)
 radius = 10.0  # Radius of the circle in meters
-velocity = 0.1  # Linear velocity in meters per second
+velocity = 0.5  # Linear velocity in meters per second
 duration = 2*np.pi*radius / velocity  # Duration of the movement in seconds
 sample_rate = 1  # Sampling rate in samples per second
 output_csv = "circular_path.csv"
 
-generate_circle_coordinates(center_point, radius, velocity, duration, sample_rate, output_csv)
+generate_circle_coordinates(center_point, target_point, radius, velocity, duration, sample_rate, output_csv)

@@ -2,6 +2,7 @@ import copy
 from locale import normalize
 from pathlib import Path
 from typing import Tuple
+import matplotlib.pyplot as plt
 
 import numpy as np
 from tqdm import tqdm
@@ -49,13 +50,12 @@ class MotionTracer:
                          T_tx: float,
                          T_rx: [float | None] = None,
                          visualize = False) -> List[np.array]:
-        prev_timestamp, prev_pose = traj[0]
+        prev_timestamp, prev_pose = traj._poses[0]
 
         rx_pattern = []
 
-        for timestamp, pose in traj:
+        for timestamp, pose in tqdm(traj._poses[1:]):
             transformed_scene: Scene = self._get_frame(pose)
-            print(pose)
 
             tracer = Tracer(transformed_scene)
             tracer.trace(self._N_RAYS, self._N_BOUNCES)
@@ -67,9 +67,9 @@ class MotionTracer:
             source_velocities = MotionTracer.get_elem_velocities(prev_pose, pose, self._scene.source_poses, dt)
             sink_velocities = MotionTracer.get_elem_velocities(prev_pose, pose, self._scene.sink_poses, dt)
 
-            transforms = tracer.get_propagation_transforms(source_velocities, sink_velocities)
+            attenuations, delays, doppler_coeffs = tracer.get_propagation_transforms(source_velocities, sink_velocities)
 
-            sinks_wave = self._propagate_wave(tx_pattern, transforms, T_tx, T_rx)
+            sinks_wave = self._propagate_wave(tx_pattern, attenuations, delays, doppler_coeffs, T_tx, T_rx)
             rx_pattern.append(sinks_wave)
 
             prev_timestamp = timestamp
@@ -97,7 +97,9 @@ class MotionTracer:
 
     def _propagate_wave(self,
                         wave: np.array,
-                        transforms: Dict[Tuple[int, int], np.array],
+                        attenuations,
+                        delays,
+                        doppler_coeffs,
                         T_tx: float,
                         T_rx: [float | None] = None) -> np.ndarray:
         # transforms: [sources, sinks, segments*paths, 3]
@@ -110,28 +112,30 @@ class MotionTracer:
             T_rx = T_tx
 
         # Find first and last return delays
-        max_delay = max([np.max(transforms_source_sink[:, 1]) for transforms_source_sink in transforms.values()])
+        max_delay = max([np.max(path_delays)][0] for path_delays in delays.values())
 
         # Allocate the result array
         sources_n_samples = wave.shape[1]
-        doppler_margin = 1.2
-        sinks_n_samples = int((max_delay + sources_n_samples * T_tx * doppler_margin) // T_rx)
+        sinks_n_samples = int((max_delay + sources_n_samples * T_tx) // T_rx)
         sinks_wave = np.zeros((n_sinks, sinks_n_samples), dtype=np.float64)
 
         t_tx = np.arange(sources_n_samples) * T_tx
 
         # Multiply and add
-        for sink in range(n_sinks):
-            for source in range(n_sources):
-                print(f"Source {source}, sink{sink}")
-                for transform_i in tqdm(range(len(transforms[(source, sink)]))):  # todo: vectorize
-                    transform = transforms[(source, sink)][transform_i]
-                    if np.isneginf(transform[0]):
-                        continue
-                    t_doppler = t_tx * transform[2]  # todo: multiply or divide?
-                    t_resampled = np.arange(0, t_doppler[-1], T_rx)
-                    sink_signal = np.interp(t_resampled, t_doppler, wave[source])
-                    start_idx = int(transform[1] // T_rx)
-                    sinks_wave[sink, start_idx:start_idx + len(sink_signal)] += sink_signal * 10 ** (transform[0] / 2)
+        for source in range(n_sources):
+            path_attenuations = attenuations[source]
+            path_delays = delays[source]
+
+            for sink in range(n_sinks):
+                sink_attenuations = path_attenuations[:, sink]
+                sink_delays = path_delays[:, sink]
+
+                t_rx = np.repeat(np.arange(0, t_tx[-1], T_rx)[np.newaxis], repeats=len(sink_delays), axis=0) + (sink_delays % T_rx)[:, np.newaxis]
+                start_idx = np.floor(sink_delays // T_rx).astype(int)
+
+                sink_signal = np.interp(t_rx, t_tx, wave[source])
+
+                for path in range(len(sink_attenuations)):
+                    sinks_wave[sink, start_idx[path]:start_idx[path] + len(sink_signal[path])] += sink_signal[path] * db_to_amplitude(sink_attenuations[path])
 
         return sinks_wave
