@@ -2,7 +2,7 @@ import pickle
 from pathlib import Path
 
 from sonar.phased_array import RectangularArray
-from sonar.utils import BarkerCode
+from sonar.utils import BarkerCode, Chirp
 from tracer.motion_random_tracer import MotionTracer, Trajectory
 from tracer.random_tracer import *
 
@@ -21,7 +21,7 @@ def run_experiment(output_file: Path,
     if T_rx is None:
         T_rx = T_tx
 
-    if isinstance(tx_pattern, BarkerCode):
+    if isinstance(tx_pattern, BarkerCode) or isinstance(tx_pattern, Chirp):
         tx_pattern_raw = np.array([tx_pattern.baseband] * len(scene.sources))
     elif isinstance(tx_pattern, np.ndarray):
         tx_pattern_raw = tx_pattern

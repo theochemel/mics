@@ -112,3 +112,41 @@ class FMBarker:
         return self._baseband
 
 
+
+class Chirp:
+
+    def __init__(self, f_hi: float, f_lo: float, T_sample, T_chirp):
+        self._f_hi = f_hi
+        self._f_lo = f_lo
+        self._T_sample = T_sample
+        self._T_chirp = T_chirp
+
+        t = T_sample * np.arange(T_chirp / T_sample)
+        self._baseband_t = t
+        self._baseband = np.sin(2 * np.pi * (f_hi - f_lo) / (2 * T_chirp) * t ** 2 + f_lo * t)
+
+
+    @property
+    def baseband(self) -> np.array:
+        return self._baseband
+
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from scipy.signal import correlate
+
+    chirp = Chirp(100e3, 50e3, 1e-6, 1e-3)
+
+    plt.plot(chirp._baseband_t, chirp._baseband)
+    plt.show()
+
+    rx_t = chirp._T_sample * np.arange(10000)
+    rx_signal = np.zeros_like(rx_t)
+
+    rx_signal[2000:2000 + len(chirp._baseband)] += chirp._baseband
+
+    correlation = correlate(rx_signal, chirp.baseband, mode="same")
+
+    plt.plot(rx_t, correlation / np.max(correlation))
+    plt.plot(rx_t, np.sin(2 * pi * chirp._f_lo * rx_t))
+    plt.show()

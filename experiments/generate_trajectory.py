@@ -47,7 +47,7 @@ def generate_circle_coordinates(center, target, radius, velocity, duration, samp
             y = cy + radius * np.sin(theta)
             z = cz  # Constant z-coordinate
 
-            world_t_vehicle = SO3.TwoVectors(x=(tx - x, ty - y, tz - z), y="y") @ SO3.TwoVectors(x="x", y="-y")
+            world_t_vehicle = SO3.RPY(0, 0, np.arctan2(ty - y, tx - x)) @ SO3.TwoVectors(x="x", y="-y")
 
             roll, pitch, yaw = world_t_vehicle.rpy()
 
@@ -57,11 +57,12 @@ def generate_circle_coordinates(center, target, radius, velocity, duration, samp
     print(f"Data saved to {output_file}")
 
 # Example usage
-target_point = (5.0, 0.0, 3.0)
+target_point = (0.0, 0.0, 0.0)
 center_point = (0.0, 0.0, 0.0)  # Center of the circle at (x, y, z)
 radius = 10.0  # Radius of the circle in meters
-velocity = 0.5  # Linear velocity in meters per second
-duration = 2*np.pi*radius / velocity  # Duration of the movement in seconds
+velocity = 0.1  # Linear velocity in meters per second
+# duration = 2*np.pi*radius / velocity  # Duration of the movement in seconds
+duration = 250
 sample_rate = 1  # Sampling rate in samples per second
 output_csv = "circular_path.csv"
 

@@ -38,78 +38,57 @@ class OccupancyGridMap:
         return world_t_grid
 
     def add_measurement(self,
-                        range_spacing: float,
                         intensity: torch.Tensor,
-                        gain: torch.Tensor,
                         k: float,
-                        world_t_array: SE3,
+                        T_rx: float,
+                        C: float,
+                        world_t_source: SE3,
+                        world_t_sink: SE3,
                         visualization_geometry=None):
 
-        array_t_world = world_t_array.inv()
-        array_t_world_t = torch.tensor(np.array(array_t_world), device=self._device)
-
-        array_t_grid = (array_t_world_t @ self.world_t_grid.reshape((-1, 4)).T).T
-        array_t_grid = array_t_grid.reshape(self.world_t_grid.shape)
-        del array_t_world_t
-
-        array_t_grid_norm = array_t_grid[..., :3].norm(dim=-1)
-        array_t_grid_unit = array_t_grid / array_t_grid_norm.unsqueeze(-1)
-        del array_t_grid
-
-        az = torch.atan2(array_t_grid_unit[..., 1], array_t_grid_unit[..., 0])
-        el = (pi / 2) - torch.atan2(array_t_grid_unit[..., 2], torch.sqrt(array_t_grid_unit[..., 0] ** 2 + array_t_grid_unit[..., 1] ** 2))
-        del array_t_grid_unit
-
-        # Remap el from [0, pi] to [-1, 1]
-        # Remap az from [-pi, pi] to [-1, 1]
-        gain_lookup = torch.stack((2 * (el / pi) - 1, az / pi), dim=-1).reshape(-1, 2).unsqueeze(0).unsqueeze(1)
-
-        gain = F.grid_sample(gain.unsqueeze(0).unsqueeze(1), gain_lookup)[0, 0, 0, :]
-        grid_gain = gain.unflatten(0, self.world_t_grid.shape[:3]) # TODO: THIS SEEMS TO BE WRONG
-
-        # N_plots = 10
-        # for i in range(N_plots):
-        #     plt.subplot(N_plots, 1, i)
-        #     plt.imshow(az[:, :, grid_gain.shape[2] // 2 + i])
-        # plt.show()
-
-        # el_index = 2 * (el / pi) - 1
-        # az_index = az / pi
+        # source_t_world = world_t_source.inv()
+        # source_t_world_t = torch.tensor(np.array(source_t_world), device=self._device)
         #
-        # plt.subplot(1, 3, 1)
-        # plt.imshow(el_index[:, :, grid_gain.shape[2] // 2 - 10])
-        # plt.subplot(1, 3, 2)
-        # plt.imshow(el_index[:, :, grid_gain.shape[2] // 2])
-        # plt.subplot(1, 3, 3)
-        # plt.imshow(el_index[:, :, grid_gain.shape[2] // 2 + 10])
-        # plt.show()
+        # sink_t_world = world_t_sink.inv()
+        # sink_t_world_t = torch.tensor(np.array(sink_t_world), device=self._device)
         #
-        # plt.subplot(1, 3, 1)
-        # plt.imshow(az_index[:, :, grid_gain.shape[2] // 2 - 10])
-        # plt.subplot(1, 3, 2)
-        # plt.imshow(az_index[:, :, grid_gain.shape[2] // 2])
-        # plt.subplot(1, 3, 3)
-        # plt.imshow(az_index[:, :, grid_gain.shape[2] // 2 + 10])
-        # plt.show()
+        # source_t_grid = (source_t_world_t @ self.world_t_grid.reshape((-1, 4)).T).T
+        # source_t_grid = source_t_grid.reshape(self.world_t_grid.shape)
         #
-        # plt.subplot(1, 3, 1)
-        # plt.imshow(grid_gain[:, :, grid_gain.shape[2] // 2 - 10])
-        # plt.subplot(1, 3, 2)
-        # plt.imshow(grid_gain[:, :, grid_gain.shape[2] // 2])
-        # plt.subplot(1, 3, 3)
-        # plt.imshow(grid_gain[:, :, grid_gain.shape[2] // 2 + 10])
-        # plt.show()
+        # sink_t_grid = (sink_t_world_t @ self.world_t_grid.reshape((-1, 4)).T).T
+        # sink_t_grid = sink_t_grid.reshape(self.world_t_grid.shape)
+        #
+        # source_t_grid_norm = source_t_grid[..., :3].norm(dim=-1)
+        # sink_t_grid_norm = sink_t_grid[..., :3].norm(dim=-1)
 
-        grid_range = array_t_grid_norm
-        grid_range_index = (grid_range / range_spacing).to(torch.int)
+        grid_pos = self.world_t_grid[..., :3]
+        source_pos = torch.tensor(world_t_source.t).unsqueeze(0).unsqueeze(1).unsqueeze(2)
+        sink_pos = torch.tensor(world_t_sink.t).unsqueeze(0).unsqueeze(1).unsqueeze(2)
+
+        grid_round_trip_range = (grid_pos - source_pos).norm(dim=-1) + (grid_pos - sink_pos).norm(dim=-1)
+
+        # array_t_grid_norm = array_t_grid[..., :3].norm(dim=-1) array_t_grid_unit = array_t_grid / array_t_grid_norm.unsqueeze(-1)
+
+        grid_range_index = (grid_round_trip_range / (T_rx * C)).to(torch.int)
 
         grid_update_valid = grid_range_index < len(intensity)
+
+        # plt.plot(np.abs(intensity))
+        # plt.show()
+
+        # plt.imshow(grid_range_index[:, :, 0])
+        # plt.show()
 
         grid_update = torch.zeros_like(self._map)
         grid_update[grid_update_valid] = \
             intensity[grid_range_index[grid_update_valid]] \
-            * torch.exp(-1.0j * k * (2 * grid_range[grid_update_valid])) \
-            * grid_gain[grid_update_valid]
+            * torch.exp(-1.0j * k * grid_round_trip_range[grid_update_valid])
+
+        # plt.imshow(np.abs(grid_update[:, :, 0]))
+        # plt.show()
+        #
+        # plt.imshow(np.angle(grid_update[:, :, 0]))
+        # plt.show()
 
         self._map = self._map + grid_update
 
