@@ -123,15 +123,11 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
         # plt.plot(correlation_tt, correlation)
         # plt.show()
 
-        # range = (np.arange(len(correlation)) * T_rx * C) / 2.0
-        range_spacing = (T_rx * C) / 2.0
-        intensity = correlation * np.exp(2j * w_m_sample * np.arange(len(correlation)))
-        intensity /= intensity.max()
+        phi = np.exp(2j * w_m_sample * np.arange(len(correlation))) * correlation
 
         steering_gain = gain[steering_i]
 
-        map.add_measurement(range_spacing,
-                            torch.tensor(intensity, device=device),
+        map.add_measurement(torch.tensor(phi, device=device),
                             k_m,
                             torch.tensor(gain[steering_i], device=device),
                             pose,
@@ -140,16 +136,16 @@ for pose_i in tqdm(range(1, len(rx_pattern))):
 map_abs = np.abs(map.get_map().cpu().numpy())
 map_abs = (map_abs - map_abs.min()) / (map_abs.max() - map_abs.min())
 
-    # plt.subplot(1, 3, 1)
-    # plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
-    # plt.title("X = 0")
-    # plt.subplot(1, 3, 2)
-    # plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
-    # plt.title("Y = 0")
-    # plt.subplot(1, 3, 3)
-    # plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
-    # plt.title("Z = 0")
-    # plt.show()
+plt.subplot(1, 3, 1)
+plt.imshow(map_abs[map_abs.shape[0] // 2, :, :])
+plt.title("X = 0")
+plt.subplot(1, 3, 2)
+plt.imshow(map_abs[:, map_abs.shape[1] // 2, :])
+plt.title("Y = 0")
+plt.subplot(1, 3, 3)
+plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
+plt.title("Z = 0")
+plt.show()
 
 plot_slices_with_colormap(map_abs, map.world_t_grid,
                           geometry=geometry,

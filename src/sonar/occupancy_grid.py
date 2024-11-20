@@ -92,7 +92,7 @@ class OccupancyGridMap:
         #                           geometry=visualization_geometry,
         #                           n_slices=15,
         #                           vehicle_pose=world_t_array)
-        # self._map += psi
+        self._map += psi
 
     def get_map(self):
         return self._map

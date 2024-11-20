@@ -26,8 +26,8 @@ sources = [
     )
 ]
 
-arr = RectangularArray(6, 6, 0.0075, UniformContinuousAngularDistribution(
-    min_az=-pi, max_az=pi, min_el=0, max_el=pi
+arr = RectangularArray(2, 2, 0.0075, UniformContinuousAngularDistribution(
+    min_az=-pi, max_az=pi, min_el=0, max_el=pi/2
 ))
 
 sand_material = SimpleMaterial(
@@ -36,10 +36,22 @@ sand_material = SimpleMaterial(
 
 surfaces = [
     Surface(
-        id=f"cube",
-        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, 0.0])),
+        id=f"bottom",
+        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, -2.0])),
         material=sand_material,
-        mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
+        mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply"),
+    ),
+    Surface(
+        id=f"cube",
+        pose=SE3.Rt(SO3(), np.array([1.0, 1.0, -1.0])),
+        material=sand_material,
+        mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
+    ),
+    Surface(
+        id=f"cube2",
+        pose=SE3.Rt(SO3(), np.array([0.0, -0.5, -1.0])),
+        material=sand_material,
+        mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
     ),
 ]
 
@@ -63,4 +75,4 @@ result = run_experiment(Path('exp_res.pkl'),
                         T_rx,
                         n_rays=10000,
                         array=arr,
-                        visualize=False)
+                        visualize=True)

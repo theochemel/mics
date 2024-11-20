@@ -22,7 +22,8 @@ C = 1500
 fc = 100_000
 wc = 2 * np.pi * fc
 kc = wc / C
-km = 2*np.pi*2 # rad / m
+km = 2*np.pi*4.5 # rad / m (lambda = 0.5)
+wm = km * C
 
 xx = np.arange(nx) * grid_size
 yy = np.arange(ny) * grid_size
@@ -31,10 +32,11 @@ grid = np.array(np.meshgrid(xx, yy)).T
 
 vals = np.zeros((nx, ny), dtype=np.complex64)
 
-targets = np.array(([3, 5], [4, 6], [2, 2]))
-# for i in range(0, 10):
-#     ang = i * np.pi / 5
-#     targets[i] = np.array([np.cos(ang)*2+5, np.sin(ang)*2 + 5])
+targets = np.zeros((20, 2))
+targets[:10] = np.transpose([np.linspace(2,4,10), [5 for _ in range(10)]])
+for i in range(10, 20):
+    ang = (i-10) * np.pi / 15
+    targets[i] = np.array([np.cos(ang)*1+5, np.sin(ang)*1 + 5])
 
 array = np.arange(array_n) * array_spacing
 array_pos = np.arange(array_start_pos, array_end_pos, array_step)
@@ -61,7 +63,7 @@ fig = plt.figure()
 
 dist = scipy.stats.norm
 
-T_sample = grid_size / C
+T_sample = grid_size / C * 0.1
 
 for arr_x in array_pos:
     for steering_i, steering_angle in enumerate(angles):
@@ -75,16 +77,20 @@ for arr_x in array_pos:
             arr_target = np.array([target[0] - arr_x, target[1]])
             target_range = np.linalg.norm(arr_target)
             target_dir = arr_target / target_range
-            range_intensity += dist.pdf(tt, loc=(2 * target_range / C), scale=3 * T_sample)
+            range_intensity += dist.pdf(tt, loc=(2 * target_range / C), scale=10 * T_sample) # * gain(target_dir, steering_dir)
+
+        range_intensity = range_intensity * np.sin(tt*wm)
 
         # plt.plot(tt, range_intensity)
         # plt.show()
 
         for i_x, x in enumerate(xx):
             for i_y, y in enumerate(yy):
-                r_m = np.linalg.norm(np.array([x, y]) - np.array([arr_x, 0]))
-                range_samples = int((2 * r_m / C) / T_sample)
-                psi = range_intensity[range_samples] * np.exp(-2j*km*r_m)
+                r_m = np.array([x, y]) - np.array([arr_x, 0])
+                r_m_norm = np.linalg.norm(r_m)
+                dir = r_m / r_m_norm
+                range_samples = int((2 * r_m_norm / C) / T_sample)
+                psi = range_intensity[range_samples] * np.exp(-2j*km*r_m_norm) # * gain(dir, steering_dir)
                 vals[i_x, i_y] += psi
 
     # Plot magnitude of vals
