@@ -112,7 +112,7 @@ class MotionTracer:
             T_rx = T_tx
 
         # Find first and last return delays
-        max_delay = max([np.max(path_delays)][0] for path_delays in delays.values())
+        max_delay = max(np.max(path_delays) for path_delays in delays.values())
 
         # Allocate the result array
         sources_n_samples = wave.shape[1]

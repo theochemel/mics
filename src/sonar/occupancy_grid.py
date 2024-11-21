@@ -39,6 +39,7 @@ class OccupancyGridMap:
 
     def add_measurement(self,
                         intensity: torch.Tensor,
+                        gain: torch.Tensor,
                         k: float,
                         T_rx: float,
                         C: float,
@@ -46,20 +47,19 @@ class OccupancyGridMap:
                         world_t_sink: SE3,
                         visualization_geometry=None):
 
-        # source_t_world = world_t_source.inv()
-        # source_t_world_t = torch.tensor(np.array(source_t_world), device=self._device)
-        #
-        # sink_t_world = world_t_sink.inv()
-        # sink_t_world_t = torch.tensor(np.array(sink_t_world), device=self._device)
-        #
-        # source_t_grid = (source_t_world_t @ self.world_t_grid.reshape((-1, 4)).T).T
-        # source_t_grid = source_t_grid.reshape(self.world_t_grid.shape)
-        #
-        # sink_t_grid = (sink_t_world_t @ self.world_t_grid.reshape((-1, 4)).T).T
-        # sink_t_grid = sink_t_grid.reshape(self.world_t_grid.shape)
-        #
-        # source_t_grid_norm = source_t_grid[..., :3].norm(dim=-1)
-        # sink_t_grid_norm = sink_t_grid[..., :3].norm(dim=-1)
+        source_t_world = world_t_source.inv()
+        source_t_world_pt = torch.tensor(np.array(source_t_world), device=self._device)
+
+        source_t_grid = (source_t_world_pt @ self.world_t_grid.reshape((-1, 4)).T).T.reshape(self.world_t_grid.shape)[..., :3]
+        source_t_grid_unit = source_t_grid / source_t_grid.norm(dim=-1).unsqueeze(-1)
+
+        az = torch.atan2(source_t_grid_unit[..., 1], source_t_grid_unit[..., 0])
+        el = (pi / 2) - torch.atan2(source_t_grid_unit[..., 2], torch.sqrt(source_t_grid_unit[..., 0] ** 2 + source_t_grid_unit[..., 1] ** 2))
+
+        gain_lookup = torch.stack((2 * (el / pi) - 1, az / pi), dim=-1).reshape(-1, 2).unsqueeze(0).unsqueeze(1)
+
+        gain = F.grid_sample(gain.unsqueeze(0).unsqueeze(1), gain_lookup)[0, 0, 0, :]
+        grid_gain = gain.unflatten(0, self.world_t_grid.shape[:3])
 
         grid_pos = self.world_t_grid[..., :3]
         source_pos = torch.tensor(world_t_source.t).unsqueeze(0).unsqueeze(1).unsqueeze(2)
@@ -67,28 +67,15 @@ class OccupancyGridMap:
 
         grid_round_trip_range = (grid_pos - source_pos).norm(dim=-1) + (grid_pos - sink_pos).norm(dim=-1)
 
-        # array_t_grid_norm = array_t_grid[..., :3].norm(dim=-1) array_t_grid_unit = array_t_grid / array_t_grid_norm.unsqueeze(-1)
-
         grid_range_index = (grid_round_trip_range / (T_rx * C)).to(torch.int)
 
         grid_update_valid = grid_range_index < len(intensity)
 
-        # plt.plot(np.abs(intensity))
-        # plt.show()
-
-        # plt.imshow(grid_range_index[:, :, 0])
-        # plt.show()
-
         grid_update = torch.zeros_like(self._map)
         grid_update[grid_update_valid] = \
             intensity[grid_range_index[grid_update_valid]] \
+            * grid_gain[grid_update_valid] \
             * torch.exp(-1.0j * k * grid_round_trip_range[grid_update_valid])
-
-        # plt.imshow(np.abs(grid_update[:, :, 0]))
-        # plt.show()
-        #
-        # plt.imshow(np.angle(grid_update[:, :, 0]))
-        # plt.show()
 
         self._map = self._map + grid_update
 

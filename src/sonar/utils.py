@@ -130,6 +130,10 @@ class Chirp:
     def baseband(self) -> np.array:
         return self._baseband
 
+    @property
+    def carrier(self):
+        return self._f_hi
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
