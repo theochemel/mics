@@ -308,6 +308,7 @@ class Tracer:
             sink_az_el_incoming = direction_to_az_el(sink_directions_incoming)
 
             sink_attenuation_outgoing = self._scattering_distribution.attenuation_db(sink_az_el_outgoing[:, 0], sink_az_el_outgoing[:, 1], np.repeat(incident_az_el[ray_id][np.newaxis, :], sink_az_el_outgoing.shape[0], axis=0))
+            sink_attenuation_travel = amplitude_to_db(1 / (sink_distances ** 2))
             sink_attenuation_incoming = np.array([sink.distribution.attenuation_db(sink_az_el_incoming[i, 0], sink_az_el_incoming[i, 1]) for i, sink in enumerate(self._scene.sinks)])
 
             raycasts = self._raycast_scene.cast_rays(
@@ -325,7 +326,7 @@ class Tracer:
                 sink_visible=visible,
                 sink_positions=sink_positions,
                 sink_delays=sink_distances / self._c,
-                sink_attenuations=np.where(visible, sink_attenuation_outgoing + sink_attenuation_incoming, -np.inf),
+                sink_attenuations=np.where(visible, sink_attenuation_outgoing + sink_attenuation_travel + sink_attenuation_incoming, -np.inf),
             )
 
     def visualize(self):

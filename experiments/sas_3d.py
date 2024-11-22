@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from numpy import pi
 import torch
-from scipy.signal import correlate, cheby1, sosfiltfilt
+from scipy.signal import correlate, correlation_lags, cheby1, sosfiltfilt
 from spatialmath import SE3, SO3
 from tqdm import tqdm
 import matplotlib
@@ -16,7 +16,7 @@ from tracer.geometry import db_to_amplitude, az_el_to_direction_grid
 from tracer.motion_random_tracer import Trajectory
 from tracer.scene import Surface, SimpleMaterial, Scene
 
-from visualization.visualize_map import np_to_voxels, plot_slices_with_colormap, SliceViewer
+from visualization.visualize_map import plot_slices_with_colormap
 import open3d as o3d
 
 filename = 'exp_res.pkl'
@@ -51,7 +51,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 beamformer = DASBeamformer(array, C)
 
 # Configure steering angles
-steering_az = np.array([0])
+steering_az = np.linspace(-pi / 3, pi / 3, 3)
 steering_el = np.array([pi / 2])
 steering_dir = az_el_to_direction_grid(steering_az, steering_el)
 steering_dir = steering_dir.reshape(-1, 3)
@@ -62,7 +62,7 @@ looking_az = np.linspace(-pi, pi, 360 // looking_res_deg)
 looking_el = np.linspace(0, pi, 180 // looking_res_deg)  # elevation from x-y plane toward +z
 looking_dir = az_el_to_direction_grid(looking_az, looking_el)
 
-k = 2 * pi * code._f_hi / C
+k = 2 * pi * code.carrier / C
 
 gain_db = beamformer.get_gain(steering_dir, looking_dir.reshape(-1, 3), k)
 gain_db = gain_db.reshape((steering_dir.shape[0], looking_dir.shape[0], looking_dir.shape[1]))
@@ -77,9 +77,9 @@ w_m = 2 * pi * f_m # rad / s
 k_m = w_m / C # rad / m
 l_m = C / f_m
 
-map_size = l_m / 2
-map = OccupancyGridMap(100, 100, 100, map_size,
-                       SE3.Rt(SO3(), (-50 * map_size, -50 * map_size, -50 * map_size)),
+map_size = l_m / 4
+map = OccupancyGridMap(100, 100, 1, map_size,
+                       SE3.Rt(SO3(), (-50 * map_size, -50 * map_size, 0.0)),
                        device)
 
 vehicle_poses = [
@@ -101,12 +101,13 @@ for pose_i in tqdm(range(1, len(rx_signals))):
 
     for beam_i in range(beamformed_signal.shape[0]):
         correlation = correlate(beamformed_signal[beam_i], code.baseband, mode="valid")
+        lags = correlation_lags(beamformed_signal.shape[1], len(code.baseband), mode="valid")
         correlation = sosfiltfilt(filter, correlation)
 
-        correlation_t = np.arange(len(correlation)) * T_rx
+        correlation_t = lags * T_rx
         complex_carrier = np.exp(1j * 2 * np.pi * f_m * correlation_t)
 
-        complex_baseband = correlation * complex_carrier
+        complex_baseband = correlation * (correlation_t ** 4) * complex_carrier
 
         map.add_measurement(
             torch.tensor(complex_baseband, device=device),
@@ -132,6 +133,9 @@ map_abs = np.abs(map.get_map().cpu().numpy())
     # plt.subplot(1, 3, 3)
 plt.imshow(map_abs[:, :, map_abs.shape[2] // 2])
 plt.title("Z = 0")
+plt.show()
+
+plt.imshow(np.angle(map.get_map().cpu().numpy()))
 plt.show()
 
 # cmap = matplotlib.cm.viridis

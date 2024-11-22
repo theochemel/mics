@@ -14,7 +14,7 @@ class BarkerCode(ABC):
         BARKER_3 = np.array([+1, +1, -1])
         # ...
         BARKER_7 = np.array([+1, +1, +1, -1, -1, +1, -1])
-        # ...
+        BARKER_13 = np.array([+1, +1, +1, +1, +1, -1, -1, +1, +1, -1, +1, -1, +1])
 
     @abstractmethod
     def correlate(self, signal: np.array) -> np.array:

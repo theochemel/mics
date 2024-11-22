@@ -26,7 +26,7 @@ sources = [
     )
 ]
 
-arr = RectangularArray(6, 6, 0.0075, UniformContinuousAngularDistribution(
+arr = RectangularArray(10, 1, 0.0075, UniformContinuousAngularDistribution(
     min_az=-pi, max_az=pi, min_el=0, max_el=pi
 ))
 
@@ -36,8 +36,8 @@ sand_material = SimpleMaterial(
 
 surfaces = [
     Surface(
-        id=f"cube",
-        pose=SE3.Rt(SO3(), np.array([0.0, 0.0, 0.0])),
+        id=f"cube1",
+        pose=SE3.Rt(SO3.RPY(0, 0, 0), np.array([0.0, 0.0, 0.0])),
         material=sand_material,
         mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
     ),
@@ -56,6 +56,7 @@ trajectory = Trajectory(Path('experiments/circular_path.csv'))
 
 T_tx = T_rx = 1e-6 # 1 MHz
 code = Chirp(f_hi=100e3, f_lo=50e3, T_sample=T_tx, T_chirp=1e-3)
+# code = PMBarker(BarkerCode.Sequence.BARKER_13, 100e3, T_rx, 50e-6)
 
 result = run_experiment(Path('exp_res.pkl'),
                         scene,
