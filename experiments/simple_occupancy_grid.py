@@ -37,7 +37,7 @@ sand_material = SimpleMaterial(
 surfaces = [
     Surface(
         id=f"cube1",
-        pose=SE3.Rt(SO3.RPY(0, 0, 0), np.array([0.0, 0.0, 0.0])),
+        pose=SE3.Rt(SO3.RPY(0, 0, 0), np.array([0.001, 0.0, 0.0])),
         material=sand_material,
         mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
     ),

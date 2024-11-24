@@ -77,7 +77,7 @@ w_m = 2 * pi * f_m # rad / s
 k_m = w_m / C # rad / m
 l_m = C / f_m
 
-map_size = l_m / 4
+map_size = l_m
 map = OccupancyGridMap(100, 100, 1, map_size,
                        SE3.Rt(SO3(), (-50 * map_size, -50 * map_size, 0.0)),
                        device)
@@ -90,24 +90,25 @@ vehicle_poses = [
 # geometry = scene.visualization_geometry() + vehicle_poses
 geometry = vehicle_poses
 
-filter = cheby1(4, 0.1, 5e3, btype='low', fs=1 / T_rx, output='sos')
+filter = cheby1(4, 0.1, 1e3, btype='low', fs=1 / T_rx, output='sos')
 
 for pose_i in tqdm(range(1, len(rx_signals))):
     pattern_i = pose_i - 1
 
     beamformed_signal = beamformer.beamform_receive(steering_dir, rx_signals[pattern_i], T_rx, k)
 
+    beamformed_signal += np.random.normal(loc=0, scale=1e-2, size=beamformed_signal.shape)
+
     _, pose = trajectory[pose_i]
 
     for beam_i in range(beamformed_signal.shape[0]):
         correlation = correlate(beamformed_signal[beam_i], code.baseband, mode="valid")
         lags = correlation_lags(beamformed_signal.shape[1], len(code.baseband), mode="valid")
-        correlation = sosfiltfilt(filter, correlation)
+        correlation = sosfiltfilt(filter, np.abs(correlation))
 
         correlation_t = lags * T_rx
-        complex_carrier = np.exp(1j * 2 * np.pi * f_m * correlation_t)
 
-        complex_baseband = correlation * (correlation_t ** 4) * complex_carrier
+        complex_baseband = correlation * (correlation_t ** 4)
 
         map.add_measurement(
             torch.tensor(complex_baseband, device=device),
@@ -120,7 +121,7 @@ for pose_i in tqdm(range(1, len(rx_signals))):
             visualization_geometry=geometry
         )
 
-map_abs = np.abs(map.get_map().cpu().numpy())
+    map_abs = np.abs(map.get_map().cpu().numpy())
 
     # ts = np.array([(map._world_t_map.inv() @ pose[1]).t for pose in trajectory._poses])
 

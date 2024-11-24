@@ -17,7 +17,7 @@ class OccupancyGridMap:
     def __init__(self, x: int, y: int, z: int, size: float,
                  world_t_map: SE3,
                  device: torch.device):
-        self._map = torch.zeros([x, y, z], dtype=torch.complex128, device=device)
+        self._map = torch.zeros([x, y, z], dtype=torch.float64, device=device)
         self._size = size
         self._world_t_map = world_t_map
         self._C = 1500
@@ -74,8 +74,10 @@ class OccupancyGridMap:
         grid_update = torch.zeros_like(self._map)
         grid_update[grid_update_valid] = \
             intensity[grid_range_index[grid_update_valid]] \
-            * grid_gain[grid_update_valid] \
-            * torch.exp(-1.0j * k * grid_round_trip_range[grid_update_valid])
+            * grid_gain[grid_update_valid]
+
+        plt.imshow(grid_update)
+        plt.show()
 
         self._map = self._map + grid_update
 

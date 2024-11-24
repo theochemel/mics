@@ -5,16 +5,16 @@ from scipy.signal import correlate, cheby1, sosfiltfilt, correlation_lags
 
 fs = 1e6
 fc = 75e3
-bw = 70e3
-
-f_hi = fc
-f_lo = fc - bw
+bw = 10e3
 
 duration = 1e-3
+K = (fc - bw) / duration
 
-t = np.linspace(0, duration, int(fs * duration), endpoint=False)
+t = np.linspace(-duration / 2, duration / 2, int(fs * duration), endpoint=False)
 
-signal = np.sin(2 * np.pi * ((f_hi - f_lo) / (2 * duration) * t ** 2 + f_lo * t))
+signal_if = np.exp(2 * np.pi * 1.0j * fc * t + np.pi * 1.0j * K * t ** 2)
+
+signal = np.real(signal_if) * np.cos(t) + np.imag(signal_if) * np.sin(t)
 
 rx_signal = np.zeros((10000))
 rx_t = np.arange(len(rx_signal)) / fs
