@@ -6,8 +6,8 @@ from scipy.optimize import minimize
 
 C = 1500
 
-chirp_fc = 7.5e3
-chirp_bw = 5e3
+chirp_fc = 75e3
+chirp_bw = 50e3
 chirp_duration = 1e-3
 chirp_K = chirp_bw / chirp_duration
 
@@ -23,10 +23,12 @@ max_rt_t = (2 * max_range) / C
 
 target_points = np.array([
     [5, 5],
+    [5, 2],
+    [6, 8],
+    [9, 5],
+    [3, 5],
 ])
 
-# gt_traj_x = (l_m / 2) * np.arange(8 / (l_m / 2)) + 1
-# gt_traj_y = np.full_like(gt_traj_x, fill_value=1)
 gt_traj_x = 1e-2 * np.arange(100)
 gt_traj_y = np.zeros_like(gt_traj_x)
 gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
@@ -48,14 +50,13 @@ def chirp_envelope(t):
     return np.where(
         (t >= -chirp_duration / 2) & (t <= chirp_duration / 2),
         (1 / chirp_duration) * np.cos(np.pi * t / chirp_duration) ** 2,
-        # 1,
         0
     )
 
 def chirp(t):
     return chirp_envelope(t) * np.exp(2.0j * np.pi * chirp_fc * t + 1.0j * np.pi * chirp_K * t ** 2)
 
-def chirp_reference(t):
+def reference_chirp(t):
     return chirp_envelope(t) * np.exp(1.0j * np.pi * chirp_K * t ** 2)
 
 def get_signal(position, signal_t):
@@ -74,33 +75,11 @@ signal = get_signal(gt_traj[0], signal_t)
 
 def pulse_compress(signal, signal_t):
     reference_signal_t = Ts * np.arange(int(chirp_duration / Ts)) - (chirp_duration / 2)
-    reference_signal = chirp_reference(reference_signal_t)
+    reference_signal = reference_chirp(reference_signal_t)
 
     correlation = sp.signal.correlate(signal, reference_signal, mode="same")
 
     return correlation # * np.exp(-2.0j * np.pi * chirp_fc * signal_t)
-
-# reference_signal_t = Ts * np.arange(int(chirp_duration / Ts)) - (chirp_duration / 2)
-# reference_signal = chirp(reference_signal_t)
-#
-# correlation = sp.signal.correlate(signal, reference_signal, mode="full")
-# lags = sp.signal.correlation_lags(len(signal), len(reference_signal), mode="full")
-# print(lags)
-# # correlation = np.concatenate((
-# #     # np.zeros(-lags[0]),
-# # ))
-# correlation = correlation[-lags[0]:]
-#
-# plt.subplot(3, 1, 1)
-# plt.plot(np.real(signal))
-# plt.plot(np.imag(signal))
-# plt.subplot(3, 1, 2)
-# plt.plot(reference_signal_t, np.real(reference_signal))
-# plt.plot(reference_signal_t, np.imag(reference_signal))
-# plt.subplot(3, 1, 3)
-# plt.plot(np.real(correlation))
-# plt.plot(np.imag(correlation))
-# plt.show()
 
 def build_map(traj):
     # traj is [n_poses, 2]
@@ -111,22 +90,11 @@ def build_map(traj):
 
     for i, position in enumerate(traj):
         signal = get_signal(position, signal_t)
+        signal *= np.exp(-2.0j * np.pi * chirp_fc * signal_t)
         pulse = pulse_compress(signal, signal_t)
 
         grid_range = np.linalg.norm(grid_pos - position[np.newaxis, np.newaxis], axis=-1)
         grid_rt_t = (2.0 * grid_range) / C
-
-        plt.imshow(grid_range)
-        plt.show()
-
-        fig, axs = plt.subplots(2, sharex=True)
-        axs[0].plot(np.real(pulse))
-        axs[0].plot(np.imag(pulse))
-        axs[0].axvline(x=((2 * np.linalg.norm(position - target_points[0])) / C) / Ts, c="r")
-        axs[1].plot(np.real(signal))
-        axs[1].plot(np.imag(signal))
-        axs[1].axvline(x=((2 * np.linalg.norm(position - target_points[0])) / C) / Ts, c="r")
-        plt.show()
 
         k = grid_rt_t / Ts
         k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
@@ -136,17 +104,9 @@ def build_map(traj):
         k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
 
         # Perform linear interpolation
-        # interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
-        interp_pulse = pulse[k_i]
+        interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
 
         update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * grid_range))
-
-        plt.subplot(1, 2, 1)
-        plt.imshow(np.abs(update), extent=grid_extent)
-        plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
-        plt.subplot(1, 2, 2)
-        plt.imshow(np.angle(update), extent=grid_extent)
-        plt.show()
 
         map += update
 

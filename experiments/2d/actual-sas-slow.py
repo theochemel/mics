@@ -88,6 +88,11 @@ def build_map(traj):
 
         signal_demod = signal * np.exp(-2.0j * np.pi * chirp_fc * signal_t)
 
+        plt.plot(np.real(signal_demod))
+        plt.plot(np.imag(signal_demod))
+        plt.axvline(x=((2 * np.linalg.norm(position - target_points[0])) / C) / Ts, c="r")
+        plt.show()
+
         grid_signal_t = signal_t[np.newaxis, np.newaxis, :] - grid_rt_t[:, :, np.newaxis]
 
         reference_signal = chirp(grid_signal_t)
