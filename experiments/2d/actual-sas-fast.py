@@ -33,7 +33,7 @@ gt_traj_x = 1e-2 * np.arange(100)
 gt_traj_y = np.zeros_like(gt_traj_x)
 gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
-noisy_traj = gt_traj + np.random.normal(loc=0, scale=l_m / 4, size=gt_traj.shape)
+noisy_traj = gt_traj + np.random.normal(loc=0, scale=1e-2, size=gt_traj.shape)
 
 grid_width = 10
 grid_height = 10
@@ -81,15 +81,15 @@ def pulse_compress(signal, signal_t):
 
     return correlation # * np.exp(-2.0j * np.pi * chirp_fc * signal_t)
 
-def build_map(traj):
+def build_map(gt_traj, noisy_traj):
     # traj is [n_poses, 2]
     # signal_t is [n_samples]
     # signals is [n_poses, n_samples]
 
     map = np.zeros(grid_pos.shape[0:2], dtype=np.complex128)
 
-    for i, position in enumerate(traj):
-        signal = get_signal(position, signal_t)
+    for i, (gt_position, position) in enumerate(zip(gt_traj, noisy_traj)):
+        signal = get_signal(gt_position, signal_t)
         signal *= np.exp(-2.0j * np.pi * chirp_fc * signal_t)
         pulse = pulse_compress(signal, signal_t)
 
@@ -120,9 +120,7 @@ def build_map(traj):
     return map
 
 
-known_traj = gt_traj[:100]
-
-base_map = build_map(known_traj)
+base_map = build_map(gt_traj, noisy_traj)
 
 plt.imshow(np.abs(base_map))
 plt.show()
