@@ -1,6 +1,7 @@
 import numpy as np
 import scipy as sp
 import matplotlib.pyplot as plt
+import matplotlib
 from scipy.optimize import minimize
 
 C = 1500
@@ -168,15 +169,16 @@ sample_px = importance_sample(np.abs(base_map), 128)
 sample_pos = grid_pos[sample_px[:, 1], sample_px[:, 0]]
 sample_weight = np.abs(base_map)[sample_px[:, 1], sample_px[:, 0]]
 
-plt.imshow(np.abs(base_map))
-plt.scatter(sample_px[:, 0], sample_px[:, 1], c="b")
+plt.imshow(np.abs(base_map), extent=grid_extent)
+plt.scatter(sample_pos[:, 0], sample_pos[:, 1], c="b")
+plt.plot(gt_traj[:, 0], gt_traj[:, 1], c="r")
 plt.show()
 
 signal = get_signal(gt_traj[50], signal_t)
 pulse = pulse_compress(signal, signal_t)
 
-offset_x = np.linspace(-5e-3, 5e-3, 10)
-offset_y = np.linspace(-5e-3, 5e-3, 10)
+offset_x = np.linspace(-5e-2, 5e-2, 50)
+offset_y = np.linspace(-5e-2, 5e-2, 50)
 
 offset_x, offset_y = np.meshgrid(offset_x, offset_y)
 
@@ -184,6 +186,8 @@ errors = np.zeros(offset_x.shape)
 
 for i in range(offset_x.shape[0]):
     for j in range(offset_x.shape[1]):
+        print(f"{i}, {j}")
+
         est_pos = gt_traj[50] + np.array([
             offset_x[i, j],
             offset_y[i, j],
@@ -214,7 +218,12 @@ for i in range(offset_x.shape[0]):
 
         errors[i, j] = avg_phase_error
 
-plt.pcolormesh(offset_x, offset_y, errors)
+# plt.pcolormesh(offset_x, offset_y, errors)
+# plt.gca().set_aspect("equal")
+# plt.show()
+
+fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
+surf = ax.plot_surface(offset_x, offset_y, errors, cmap=matplotlib.cm.coolwarm)
 plt.show()
 
 pass
