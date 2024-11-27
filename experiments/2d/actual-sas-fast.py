@@ -21,19 +21,23 @@ l_m = C / chirp_fhi
 max_range = 20
 max_rt_t = (2 * max_range) / C
 
-target_points = np.array([
-    [5, 5],
-    [5, 2],
-    [6, 8],
-    [9, 5],
-    [3, 5],
-])
+# target_points = np.array([
+#     [5, 5],
+#     [5, 2],
+#     [6, 8],
+#     [9, 5],
+#     [3, 5],
+# ])
+
+target_points_x = np.linspace(1, 9, 100)
+target_points_y = np.full_like(target_points_x, fill_value=8)
+target_points = np.stack((target_points_x, target_points_y), axis=-1)
 
 gt_traj_x = 1e-2 * np.arange(100)
 gt_traj_y = np.zeros_like(gt_traj_x)
 gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
-noisy_traj = gt_traj + np.random.normal(loc=0, scale=1e-2, size=gt_traj.shape)
+noisy_traj = gt_traj + np.random.normal(loc=0, scale=1e-3, size=gt_traj.shape)
 
 grid_width = 10
 grid_height = 10
