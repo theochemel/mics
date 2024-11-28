@@ -218,12 +218,6 @@ for i in range(offset_x.shape[0]):
 
         errors[i, j] = avg_phase_error
 
-# plt.pcolormesh(offset_x, offset_y, errors)
-# plt.gca().set_aspect("equal")
-# plt.show()
-
 fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
 surf = ax.plot_surface(offset_x, offset_y, errors, cmap=matplotlib.cm.coolwarm)
 plt.show()
-
-pass
