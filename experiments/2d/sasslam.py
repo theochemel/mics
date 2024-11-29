@@ -166,7 +166,7 @@ def importance_sample(img, n_samples):
 
 
 def build_amplitude_linear_system(pos,
-                                  pulses, map_sample_coords, map_sample_weigths,
+                                  pulses, map_sample_coords, map_sample_weights, pulse_scale_factor,
                                   odom, odom_cov,
                                   pos_prior, pos_prior_cov):
     # Dimensions
@@ -192,6 +192,7 @@ def build_amplitude_linear_system(pos,
 
     pulses = np.abs(pulses).astype(np.float64)
     dpulses_dt = np.gradient(pulses, Ts, axis=-1)
+    pulses = (1 - k_a) * pulses[row_indices, k_i] + k_a * pulses[row_indices, k_i_plus_1]
     dpulses_dt = (1 - k_a) * dpulses_dt[row_indices, k_i] + k_a * dpulses_dt[row_indices, k_i_plus_1]  # N_poses x N_samples
 
     # Measurement Jacobian
@@ -209,7 +210,7 @@ def build_amplitude_linear_system(pos,
     A_odom = inv_sqrt_odom @ H_odom
     A_pos_prior = inv_sqrt_pos_prior @ H_prior
 
-    A[:2, :2] = A_odom
+    A[:2, :2] = A_pos_prior
     for i in range(2, 2 + N_odoms * 2, 2):
         A[i:i+2, i:i+4] = A_odom
 
@@ -219,10 +220,26 @@ def build_amplitude_linear_system(pos,
 
     dpulses_dpos = dt_dr * dpulses_dt[:, :, np.newaxis] * dr_dpos  # N_poses x N_samples x 2
 
+    map_sample_weights *= pulse_scale_factor
+
     for pose_i in range(0, N_poses):
         l = 2 * pose_i
-        t = 2 * N_odoms + N_samples * pose_i
-        H[t:t+N_samples, l:l+2] = dpulses_dpos[pose_i]
+        t = 2 + 2 * N_odoms + N_samples * pose_i
+        A[t:t+N_samples, l:l+2] = map_sample_weights * dpulses_dpos[pose_i]
 
     # Residuals
+    b = np.zeros(2 + N_odoms * 2 + N_samples * N_poses)
 
+    b[:2] = inv_sqrt_pos_prior @ (pos[0] - pos_prior)
+
+    h_odom = np.diff(pos, axis=0)
+    odom_error = odom - h_odom
+    b[2 : 2+N_odoms*2] = (inv_sqrt_odom @ odom_error.T).T.reshape(-1)
+
+    b[2+N_odoms*2:] = map_sample_weights * pulses
+
+    return A, b
+
+
+if __name__ == "__main__":
+    target_points = make_targets()
