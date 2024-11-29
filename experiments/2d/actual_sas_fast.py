@@ -35,7 +35,7 @@ gt_traj_x = 1e-2 * np.arange(100)
 gt_traj_y = np.zeros_like(gt_traj_x)
 gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
-noisy_traj = gt_traj + np.random.normal(loc=0, scale=1e-3, size=gt_traj.shape)
+noisy_traj = gt_traj + np.random.normal(loc=0, scale=5e-3, size=gt_traj.shape)
 
 grid_width = 10
 grid_height = 10
@@ -256,43 +256,46 @@ def build_system(est_pos):
 
     # Perform linear interpolation
     interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
-    # interp_pulse_grad = (1 - k_a) * pulse_grad[k_i] + k_a * pulse_grad[k_i_plus_1]
-    #
-    # interp_pulse_phase_grad = np.imag(interp_pulse_grad / interp_pulse)
 
     update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * sample_range))
 
     est_phase = np.angle(update)
     phase_error = wrap2pi(base_map_phase - est_phase)
 
-    target_phase = est_phase + phase_error
-
     update_phase_grad_x = -(4.0 * np.pi * chirp_fc / C) * sample_direction[:, 0]
     update_phase_grad_y = -(4.0 * np.pi * chirp_fc / C) * sample_direction[:, 1]
 
-    b[:-2] = target_phase
+    b[:-2] = phase_error
     A[:-2, 0] = sample_weight * update_phase_grad_x
     A[:-2, 1] = sample_weight * update_phase_grad_y
 
     return A, b
 
-est_pos = noisy_traj[50]
-gt_pos = gt_traj[50]
+fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
+surf = ax.plot_surface(offset_x, offset_y, errors, cmap=matplotlib.cm.coolwarm)
+plt.show()
 
-for i in range(10):
+gt_pos = gt_traj[50]
+est_pos = gt_pos + np.array([4e-3, 0.0])
+
+est_pos_hist = []
+est_pos_hist.append(est_pos)
+
+for i in range(50):
     A, b = build_system(est_pos)
 
     dx = np.linalg.solve(A.T @ A, A.T @ b)
 
-    est_pos = est_pos + 1e9 * dx
+    est_pos = est_pos + 1e10 * dx
 
     err = est_pos - gt_pos
 
-    print(np.linalg.norm(err))
+    print(err)
 
-    fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
-    surf = ax.plot_surface(offset_x, offset_y, errors, cmap=matplotlib.cm.coolwarm)
-    ax.scatter(est_pos[0] - gt_traj[50, 0], est_pos[1] - gt_traj[50, 1], 0, c="r")
+    est_pos_hist.append(est_pos)
+
+    plt.pcolormesh(offset_x, offset_y, errors, cmap=matplotlib.cm.coolwarm)
+    plt.plot(np.array(est_pos_hist)[:, 0] - gt_traj[50, 0], np.array(est_pos_hist)[:, 1] - gt_traj[50, 1], c="r")
     plt.show()
 
 pass
