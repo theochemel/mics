@@ -11,6 +11,8 @@ chirp_bw = 50e3
 chirp_duration = 1e-3
 chirp_K = chirp_bw / chirp_duration
 
+K = 2 * np.pi * chirp_fc / C
+
 chirp_fhi = chirp_fc + chirp_bw / 2
 
 fs = 1e6
@@ -29,13 +31,13 @@ target_points_y, target_points_x = np.meshgrid(target_points_y, target_points_x,
 target_points_y = target_points_y.flatten()
 target_points_x = target_points_x.flatten()
 target_points = np.stack((target_points_x, target_points_y), axis=-1)
-target_points += np.random.normal(loc=0, scale=5e-3, size=target_points.shape)
+target_points += np.random.normal(loc=0, scale=2e-2, size=target_points.shape)
 
 gt_traj_x = 1e-2 * np.arange(100)
 gt_traj_y = np.zeros_like(gt_traj_x)
 gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
-noisy_traj = gt_traj + np.random.normal(loc=0, scale=1e-5, size=gt_traj.shape)
+noisy_traj = gt_traj + np.random.normal(loc=0, scale=3e-2, size=gt_traj.shape)
 
 grid_width = 10
 grid_height = 10
@@ -174,20 +176,22 @@ plt.imshow(np.abs(base_map), extent=grid_extent)
 plt.plot(gt_traj[:, 0], gt_traj[:, 1], c="r")
 plt.show()
 
-signal = get_signal(gt_traj[50], signal_t)
+signal = get_signal(noisy_traj[50], signal_t)
 pulse = pulse_compress(signal, signal_t)
 
-offset_x = np.linspace(-5e-2, 5e-2, 50)
-offset_y = np.linspace(-5e-2, 5e-2, 50)
+# Step 1: Magnitude optimization
+mag_opt_grid_size = (C / chirp_fc) / 2  # lambda_c / 2
+mag_opt_grid_nx = 50
+mag_opt_grid_ny = 50
 
-offset_x, offset_y = np.meshgrid(offset_x, offset_y)
+mag_opt_xx = mag_opt_grid_size * (np.arange(mag_opt_grid_nx) - mag_opt_grid_nx // 2)
+mag_opt_yy = mag_opt_grid_size * (np.arange(mag_opt_grid_ny) - mag_opt_grid_ny // 2)
 
-errors = np.zeros(offset_x.shape)
-abs_errors = np.zeros(offset_x.shape)
+mag_opt_xx, mag_opt_yy = np.meshgrid(mag_opt_xx, mag_opt_yy)
 
 est_pos = gt_traj[np.newaxis, np.newaxis, 50] + np.stack([
-    offset_x,
-    offset_y,
+    mag_opt_xx,
+    mag_opt_yy,
 ], axis=2)
 
 base_map_mag = np.abs(base_map)[sample_px[:, 1], sample_px[:, 0]]
@@ -203,18 +207,57 @@ k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
 interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
 update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * sample_range))
 
-est_phase = np.angle(update)
-est_mag = np.abs(update)
+weighted_magnitudes = np.sum(sample_weight[:, np.newaxis, np.newaxis] * np.abs(update), axis=0)
 
-phase_error = np.sum(
-    sample_weight[:, np.newaxis, np.newaxis] * (wrap2pi(est_phase - base_map_phase[:, np.newaxis, np.newaxis]) ** 2),
-    axis=0
-) / np.sum(sample_weight)
+pos_idx = np.unravel_index(np.argmax(weighted_magnitudes), weighted_magnitudes.shape)
+pos = est_pos[pos_idx]
 
-weighted_magnitude = np.sum(
-    sample_weight[:, np.newaxis, np.newaxis] * est_mag,
-    axis=0
-) / np.sum(sample_weight)
+print(pos)
+
+# Step 2: LSQ Phase Alignment
+
+def build_linear_system(pos):
+    sample_range = np.linalg.norm(sample_pos - pos[np.newaxis], axis=-1)
+    sample_rt_t = (2.0 * sample_range) / C
+
+    k = sample_rt_t / Ts
+    k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
+    k_a = k - k_i  # Fractional parts
+    k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
+    interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
+
+    # unweighted sample cost linearization
+    dsc_dx = 2 * K * (pos[0] - sample_pos[:, 0]) / sample_range
+    dsc_dy = 2 * K * (pos[1] - sample_pos[:, 1]) / sample_range
+
+    # weight = sample_weight * np.abs(interp_pulse)
+    # weight /= np.max(weight)
+
+    A = np.transpose([dsc_dx, dsc_dy])
+    b = wrap2pi(base_map_phase - np.angle(interp_pulse) - 2 * chirp_K * sample_range)
+
+    return A, b
+
+pos += np.array([0.01, 0.01])
+# Iterative solver
+for i in range(1000):
+    A, b = build_linear_system(pos)
+    delta = np.linalg.solve(A.T @ A, A.T @ b)
+    pos += delta
+    print(pos, delta)
+
+
+
+
+# phase_error = np.sum(
+#     est_mag * sample_weight[:, np.newaxis, np.newaxis] * ((np.pi - np.abs(wrap2pi(est_phase - base_map_phase[:, np.newaxis, np.newaxis]))) ** 2),
+#     axis=0
+# ) / np.sum(sample_weight)
+#
+# weighted_magnitude = np.sum(
+#     sample_weight[:, np.newaxis, np.newaxis] * est_mag,
+#     axis=0
+# ) / np.sum(sample_weight)
 
 
 # for i in range(offset_x.shape[0]):
@@ -263,8 +306,8 @@ weighted_magnitude = np.sum(
 # plt.show()
 
 fig, (ax1, ax2) = plt.subplots(1, 2, subplot_kw=dict(projection='3d'))
-surf = ax1.plot_surface(offset_x, offset_y, phase_error, cmap=matplotlib.cm.coolwarm)
-surf = ax2.plot_surface(offset_x, offset_y, weighted_magnitude, cmap=matplotlib.cm.coolwarm)
+surf = ax1.plot_surface(mag_opt_xx, mag_opt_yy, weighted_magnitudes, cmap=matplotlib.cm.coolwarm)
+# surf = ax2.plot_surface(offset_x, offset_y, weighted_magnitude, cmap=matplotlib.cm.coolwarm)
 plt.show()
 
 pass
