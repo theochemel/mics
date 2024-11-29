@@ -35,7 +35,7 @@ gt_traj_x = 1e-2 * np.arange(100)
 gt_traj_y = np.zeros_like(gt_traj_x)
 gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
-noisy_traj = gt_traj + np.random.normal(loc=0, scale=1e-5, size=gt_traj.shape)
+noisy_traj = gt_traj + np.random.normal(loc=0, scale=1e-3, size=gt_traj.shape)
 
 grid_width = 10
 grid_height = 10
@@ -165,20 +165,30 @@ base_map = build_map(gt_traj[:50], gt_traj[:50])
 # Now do the optimization to adjust a noisy pose 50 relative to
 # map built from GT poses 0-49
 
-sample_px = importance_sample(np.abs(base_map), 128)
-sample_pos = grid_pos[sample_px[:, 1], sample_px[:, 0]]
-sample_weight = np.abs(base_map)[sample_px[:, 1], sample_px[:, 0]]
-
-plt.imshow(np.abs(base_map), extent=grid_extent)
-plt.scatter(sample_pos[:, 0], sample_pos[:, 1], c="b")
-plt.plot(gt_traj[:, 0], gt_traj[:, 1], c="r")
-plt.show()
+# plt.imshow(np.abs(base_map), extent=grid_extent)
+# plt.scatter(sample_pos[:, 0], sample_pos[:, 1], c="b")
+# plt.plot(gt_traj[:, 0], gt_traj[:, 1], c="r")
+# plt.show()
 
 signal = get_signal(gt_traj[50], signal_t)
 pulse = pulse_compress(signal, signal_t)
 
-offset_x = np.linspace(-5e-2, 5e-2, 50)
-offset_y = np.linspace(-5e-2, 5e-2, 50)
+sigma_pose = 1e-3 * np.eye(2)
+sigma_phase = 1e-9
+
+H_pose = np.eye(2)
+
+sqrt_inv_pose = np.linalg.inv(sp.linalg.sqrtm(sigma_pose))
+sqrt_inv_phase = 1 / np.sqrt(sigma_phase)
+
+n_sample = 128
+
+sample_px = importance_sample(np.abs(base_map), n_sample)
+sample_pos = grid_pos[sample_px[:, 1], sample_px[:, 0]]
+sample_weight = np.abs(base_map)[sample_px[:, 1], sample_px[:, 0]]
+
+offset_x = np.linspace(-5e-3, 5e-3, 10)
+offset_y = np.linspace(-5e-3, 5e-3, 10)
 
 offset_x, offset_y = np.meshgrid(offset_x, offset_y)
 
@@ -218,12 +228,71 @@ for i in range(offset_x.shape[0]):
 
         errors[i, j] = avg_phase_error
 
-# plt.pcolormesh(offset_x, offset_y, errors)
-# plt.gca().set_aspect("equal")
-# plt.show()
+pulse_grad = np.gradient(pulse)
 
-fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
-surf = ax.plot_surface(offset_x, offset_y, errors, cmap=matplotlib.cm.coolwarm)
-plt.show()
+def build_system(est_pos):
+    M = n_sample + 2
+    N = 2
+
+    A = np.zeros((M, N))
+    b = np.zeros((M,))
+
+    A[-2:, :] = sqrt_inv_pose @ H_pose
+    b[-2:] = sqrt_inv_pose @ noisy_traj[50]
+
+    base_map_phase = np.angle(base_map)[sample_px[:, 1], sample_px[:, 0]]
+
+    sample_range = np.linalg.norm(sample_pos - est_pos[np.newaxis], axis=-1)
+    sample_rt_t = (2.0 * sample_range) / C
+
+    sample_direction = (sample_pos - est_pos[np.newaxis]) / sample_range[:, np.newaxis]
+
+    k = sample_rt_t / Ts
+    k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
+    k_a = k - k_i  # Fractional parts
+
+    # Ensure we don't go out of bounds for the upper index
+    k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
+
+    # Perform linear interpolation
+    interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
+    # interp_pulse_grad = (1 - k_a) * pulse_grad[k_i] + k_a * pulse_grad[k_i_plus_1]
+    #
+    # interp_pulse_phase_grad = np.imag(interp_pulse_grad / interp_pulse)
+
+    update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * sample_range))
+
+    est_phase = np.angle(update)
+    phase_error = wrap2pi(base_map_phase - est_phase)
+
+    target_phase = est_phase + phase_error
+
+    update_phase_grad_x = -(4.0 * np.pi * chirp_fc / C) * sample_direction[:, 0]
+    update_phase_grad_y = -(4.0 * np.pi * chirp_fc / C) * sample_direction[:, 1]
+
+    b[:-2] = target_phase
+    A[:-2, 0] = sample_weight * update_phase_grad_x
+    A[:-2, 1] = sample_weight * update_phase_grad_y
+
+    return A, b
+
+est_pos = noisy_traj[50]
+gt_pos = gt_traj[50]
+
+for i in range(10):
+    A, b = build_system(est_pos)
+
+    dx = np.linalg.solve(A.T @ A, A.T @ b)
+
+    est_pos = est_pos + 1e9 * dx
+
+    err = est_pos - gt_pos
+
+    print(np.linalg.norm(err))
+
+    fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
+    surf = ax.plot_surface(offset_x, offset_y, errors, cmap=matplotlib.cm.coolwarm)
+    ax.scatter(est_pos[0] - gt_traj[50, 0], est_pos[1] - gt_traj[50, 1], 0, c="r")
+    plt.show()
 
 pass
