@@ -160,7 +160,7 @@ def importance_sample(img, n_samples):
 
     return np.stack((sample_x, sample_y), axis=-1)
 
-base_map = build_map(gt_traj[:50], gt_traj[:50])
+base_map = build_map(gt_traj[:50], gt_traj[:50], visualize=False)
 
 # Now do the optimization to adjust a noisy pose 50 relative to
 # map built from GT poses 0-49
@@ -170,7 +170,7 @@ sample_pos = grid_pos[sample_px[:, 1], sample_px[:, 0]]
 sample_weight = np.abs(base_map)[sample_px[:, 1], sample_px[:, 0]]
 
 plt.imshow(np.abs(base_map), extent=grid_extent)
-plt.scatter(sample_pos[:, 0], sample_pos[:, 1], c="b")
+# plt.scatter(sample_pos[:, 0], sample_pos[:, 1], c="b")
 plt.plot(gt_traj[:, 0], gt_traj[:, 1], c="r")
 plt.show()
 
@@ -183,47 +183,88 @@ offset_y = np.linspace(-5e-2, 5e-2, 50)
 offset_x, offset_y = np.meshgrid(offset_x, offset_y)
 
 errors = np.zeros(offset_x.shape)
+abs_errors = np.zeros(offset_x.shape)
 
-for i in range(offset_x.shape[0]):
-    for j in range(offset_x.shape[1]):
-        print(f"{i}, {j}")
+est_pos = gt_traj[np.newaxis, np.newaxis, 50] + np.stack([
+    offset_x,
+    offset_y,
+], axis=2)
 
-        est_pos = gt_traj[50] + np.array([
-            offset_x[i, j],
-            offset_y[i, j],
-        ])
+base_map_mag = np.abs(base_map)[sample_px[:, 1], sample_px[:, 0]]
+base_map_phase = np.angle(base_map)[sample_px[:, 1], sample_px[:, 0]]
 
-        base_map_phase = np.angle(base_map)[sample_px[:, 1], sample_px[:, 0]]
+sample_range = np.linalg.norm(sample_pos[:, np.newaxis, np.newaxis] - est_pos[np.newaxis], axis=-1)
+sample_rt_t = (2.0 * sample_range) / C
 
-        sample_range = np.linalg.norm(sample_pos - est_pos[np.newaxis], axis=-1)
-        sample_rt_t = (2.0 * sample_range) / C
+k = sample_rt_t / Ts
+k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
+k_a = k - k_i  # Fractional parts
+k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
+interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
+update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * sample_range))
 
-        k = sample_rt_t / Ts
-        k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
-        k_a = k - k_i  # Fractional parts
+est_phase = np.angle(update)
+est_mag = np.abs(update)
 
-        # Ensure we don't go out of bounds for the upper index
-        k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
+phase_error = np.sum(
+    sample_weight[:, np.newaxis, np.newaxis] * (wrap2pi(est_phase - base_map_phase[:, np.newaxis, np.newaxis]) ** 2),
+    axis=0
+) / np.sum(sample_weight)
 
-        # Perform linear interpolation
-        interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
+weighted_magnitude = np.sum(
+    sample_weight[:, np.newaxis, np.newaxis] * est_mag,
+    axis=0
+) / np.sum(sample_weight)
 
-        update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * sample_range))
 
-        est_phase = np.angle(update)
-
-        avg_phase_error = np.sum(
-            sample_weight * (wrap2pi(est_phase - base_map_phase) ** 2)
-        ) / np.sum(sample_weight)
-
-        errors[i, j] = avg_phase_error
+# for i in range(offset_x.shape[0]):
+#     for j in range(offset_x.shape[1]):
+#         print(f"{i}, {j}")
+#
+#         est_pos = gt_traj[50] + np.array([
+#             offset_x[i, j],
+#             offset_y[i, j],
+#         ])
+#
+#         base_map_phase = np.angle(base_map)[sample_px[:, 1], sample_px[:, 0]]
+#
+#         sample_range = np.linalg.norm(sample_pos - est_pos[np.newaxis], axis=-1)
+#         sample_rt_t = (2.0 * sample_range) / C
+#
+#         k = sample_rt_t / Ts
+#         k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
+#         k_a = k - k_i  # Fractional parts
+#
+#         # Ensure we don't go out of bounds for the upper index
+#         k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
+#
+#         # Perform linear interpolation
+#         interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
+#
+#         update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * sample_range))
+#
+#         est_phase = np.angle(update)
+#
+#         avg_phase_error = np.sum(
+#             sample_weight * (wrap2pi(est_phase - base_map_phase) ** 2)
+#         ) / np.sum(sample_weight)
+#
+#         abs_update = np.abs(update)
+#         base_map_mag = np.abs(base_map)
+#         avg_abs_error = np.sum(
+#             sample_weight * abs_update ** 2
+#         ) / np.sum(sample_weight)
+#
+#         errors[i, j] = avg_phase_error
+#         abs_errors[i, j] = avg_abs_error
 
 # plt.pcolormesh(offset_x, offset_y, errors)
 # plt.gca().set_aspect("equal")
 # plt.show()
 
-fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
-surf = ax.plot_surface(offset_x, offset_y, errors, cmap=matplotlib.cm.coolwarm)
+fig, (ax1, ax2) = plt.subplots(1, 2, subplot_kw=dict(projection='3d'))
+surf = ax1.plot_surface(offset_x, offset_y, phase_error, cmap=matplotlib.cm.coolwarm)
+surf = ax2.plot_surface(offset_x, offset_y, weighted_magnitude, cmap=matplotlib.cm.coolwarm)
 plt.show()
 
 pass
