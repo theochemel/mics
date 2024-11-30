@@ -2,7 +2,6 @@ import matplotlib
 import numpy as np
 import scipy as sp
 import matplotlib.pyplot as plt
-from sympy.printing.pretty.pretty_symbology import line_width
 
 C = 1500
 
@@ -48,6 +47,12 @@ def make_sine_targets():
     t = np.linspace(0, 1, 50)
     target_points_x = 1 + t * 8
     target_points_y = 5 + np.sin(2*np.pi*t)
+    target_points = np.stack((target_points_x, target_points_y), axis=-1)
+    return target_points
+
+def make_corner_target():
+    target_points_x = np.concatenate((np.linspace(5,9,50), 9 * np.ones((50,))))
+    target_points_y = np.concatenate((9 * np.ones((50,)), np.linspace(5,9,50)))
     target_points = np.stack((target_points_x, target_points_y), axis=-1)
     return target_points
 
@@ -458,7 +463,7 @@ if __name__ == "__main__":
     odom_bias = np.array([-0.001, 0.001])
     odom = odom_from_traj(gt_traj, odom_cov, clip_val=odom_clip_val)
 
-    target_points = make_forest_targets()
+    target_points = make_corner_target()
     grid_pos, map = initialize_map()
 
     slam_start_pose = 20
