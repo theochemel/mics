@@ -1,7 +1,9 @@
+import matplotlib
 import numpy as np
 import scipy as sp
 import matplotlib.pyplot as plt
 
+from tracer.scene import Scene
 
 C = 1500
 
@@ -28,7 +30,7 @@ grid_height = 10
 grid_size = 1e-2
 
 """
-SIMULATION & SIGNAL PROCESSING
+ACOUSTIC SIM
 """
 
 def make_targets():
@@ -82,6 +84,19 @@ def pulse_compress(signal, signal_t):
     return correlation
 
 """
+MOTION SIM
+"""
+
+def odom_from_traj(traj, cov):
+    odom = np.zeros((traj.shape[0] - 1, 2))
+    for i in range(1, traj.shape[0]):
+        mean = traj[i] - traj[i-1]
+        sample = np.random.multivariate_normal(mean, cov)
+        odom[i-1] = sample
+
+    return odom
+
+"""
 SYNTHETIC-APERTURE PROCESSING
 """
 
@@ -96,9 +111,8 @@ def initialize_map():
 
     return grid_pos, map
 
-def update_map(map, grid_pos, gt_position, position,
+def update_map(map, grid_pos, position, signal,
                visualize=False, target_points=None):
-    signal = get_signal(gt_position, signal_t)
     pulse = pulse_compress(signal, signal_t)
 
     if visualize:
@@ -144,9 +158,10 @@ def update_map(map, grid_pos, gt_position, position,
         plt.show()
 
 
-def build_map_from_gt_traj(map, grid_pos, gt_traj):
+def build_map_from_gt_traj(map, grid_pos, gt_traj, target_points):
     for i, gt_position in enumerate(gt_traj):
-        update_map(map, grid_pos, gt_position, gt_position)
+        signal = get_signal(gt_position, signal_t, target_points)
+        update_map(map, grid_pos, gt_position, signal)
 
 """
 SLAM
@@ -178,7 +193,7 @@ def build_amplitude_linear_system(pos,
     # Samples
     sample_vec = map_sample_coords[np.newaxis, :] - pos[:, np.newaxis]
     sample_range = np.linalg.norm(sample_vec, axis=-1)
-    sample_dir = sample_vec / sample_range  # N_poses x N_samples x 2
+    sample_dir = sample_vec / sample_range[:, :, np.newaxis]  # N_poses x N_samples x 2
     sample_rt_t = 2 * sample_range / C
 
     # Pulse derivative interpolation
@@ -211,8 +226,8 @@ def build_amplitude_linear_system(pos,
     A_pos_prior = inv_sqrt_pos_prior @ H_prior
 
     A[:2, :2] = A_pos_prior
-    for i in range(2, 2 + N_odoms * 2, 2):
-        A[i:i+2, i:i+4] = A_odom
+    for j in range(0, N_odoms * 2, 2):
+        A[j+2:j+4, j:j+4] = A_odom
 
     # r is roundtrip distance to the target, t is return time
     dt_dr = 1 / C
@@ -225,7 +240,7 @@ def build_amplitude_linear_system(pos,
     for pose_i in range(0, N_poses):
         l = 2 * pose_i
         t = 2 + 2 * N_odoms + N_samples * pose_i
-        A[t:t+N_samples, l:l+2] = map_sample_weights * dpulses_dpos[pose_i]
+        A[t:t+N_samples, l:l+2] = map_sample_weights[:, np.newaxis] * dpulses_dpos[pose_i]
 
     # Residuals
     b = np.zeros(2 + N_odoms * 2 + N_samples * N_poses)
@@ -236,10 +251,80 @@ def build_amplitude_linear_system(pos,
     odom_error = odom - h_odom
     b[2 : 2+N_odoms*2] = (inv_sqrt_odom @ odom_error.T).T.reshape(-1)
 
-    b[2+N_odoms*2:] = map_sample_weights * pulses
+    b[2+N_odoms*2:] = (map_sample_weights * pulses).reshape(-1)
 
     return A, b
 
 
 if __name__ == "__main__":
+    # Generate trajectory and odometry
+    gt_traj_x = 1e-2 * np.arange(100)
+    gt_traj_y = np.zeros_like(gt_traj_x)
+    gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
+
+    odom_cov = np.array([
+        [0.05, 0],
+        [0, 0.05]
+    ])
+    odom = odom_from_traj(gt_traj, odom_cov)
+
     target_points = make_targets()
+    grid_pos, map = initialize_map()
+
+    n_init_poses = 20
+    build_map_from_gt_traj(map, grid_pos, gt_traj[:n_init_poses], target_points)
+
+    grid_extent = [0, grid_width, 0, grid_height]
+    plt.subplot(1, 2, 1)
+    plt.imshow(np.abs(map), extent=grid_extent)
+    plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+    plt.subplot(1, 2, 2)
+    plt.imshow(np.angle(map), extent=grid_extent)
+    plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+    plt.suptitle("Update")
+    plt.show()
+
+    # Start with a shitty prior
+    pos_prior_cov = odom_cov * 3
+    pos_prior = np.random.multivariate_normal(gt_traj[n_init_poses], pos_prior_cov)
+
+    # Dead reckon initial poses
+    lag = 5
+    pos = np.zeros((lag, 2))
+    pos[0] = pos_prior
+    for i in range(1, lag):
+        pos[i] = pos[i-1] + odom[n_init_poses + i - 1]
+
+    # SLAMMING
+    for odom_i in range(n_init_poses-1, odom.shape[0]):
+        # Simulate
+        pulses = np.empty((lag, signal_t.shape[0]))
+        for i in range(lag):
+            signal = get_signal(pos[i], signal_t, target_points)
+            pulses[i] = pulse_compress(signal, signal_t)
+
+        # Sample map
+        sample_idx = importance_sample(np.abs(map), 128)
+        sample_coords = grid_pos[sample_idx[:, 1], sample_idx[:, 0]]
+        sample_weights = np.abs(map)[sample_idx[:, 1], sample_idx[:, 0]]
+
+        gt_pos = gt_traj[odom_i+1]
+        print(f'Error before opt: {np.sum(np.linalg.norm(gt_pos - pos, axis=-1)**2)}')
+
+        for i in range(10):
+            A, b = build_amplitude_linear_system(pos,
+                                                 pulses, sample_coords, sample_weights, 1e4,
+                                                 odom[odom_i : odom_i+lag-1], odom_cov,
+                                                 pos_prior, pos_prior_cov)
+
+            x, residuals, rank, s = np.linalg.lstsq(A, b)
+
+            dpos = x.reshape((lag, 2))
+            pos += dpos
+
+            # print(dpos, pos)
+
+        gt_pos = gt_traj[odom_i+1]
+        print(f'Error after opt: {np.sum(np.linalg.norm(gt_pos - pos, axis=-1)**2)}')
+
+        break
