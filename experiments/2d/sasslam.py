@@ -33,16 +33,23 @@ grid_size = 1e-2
 ACOUSTIC SIM
 """
 
-def make_targets():
+def make_forest_targets():
     target_points_x = np.linspace(1, 9, 9)
     target_points_y = np.linspace(1, 9, 9)
     target_points_y, target_points_x = np.meshgrid(target_points_y, target_points_x, indexing="ij")
     target_points_y = target_points_y.flatten()
     target_points_x = target_points_x.flatten()
     target_points = np.stack((target_points_x, target_points_y), axis=-1)
-    target_points += np.random.normal(loc=0, scale=2e-2, size=target_points.shape)
+    # target_points += np.random.normal(loc=0, scale=3e-1, size=target_points.shape)
     return target_points
 
+
+def make_sine_targets():
+    t = np.linspace(0, 1, 50)
+    target_points_x = 1 + t * 8
+    target_points_y = 5 + np.sin(2*np.pi*t)
+    target_points = np.stack((target_points_x, target_points_y), axis=-1)
+    return target_points
 
 def wrap2pi(x):
     return (x + np.pi) % (2 * np.pi) - np.pi
@@ -51,7 +58,8 @@ def wrap2pi(x):
 def chirp_envelope(t):
     return np.where(
         (t >= -chirp_duration / 2) & (t <= chirp_duration / 2),
-        (1 / chirp_duration) * np.cos(np.pi * t / chirp_duration) ** 2,
+        # (1 / chirp_duration) * np.cos(np.pi * t / chirp_duration) ** 2,
+        np.cos(np.pi * t / chirp_duration) ** 2,
         0
     )
 
@@ -256,6 +264,28 @@ def build_amplitude_linear_system(pos,
     return A, b
 
 
+def plot_amplitude_error(sample_coords, sample_weights,
+                         pos, pulse, pos_history, gt_pos):
+
+    sample_range = np.linalg.norm(sample_coords[:, np.newaxis, np.newaxis] - pos[np.newaxis], axis=-1)
+    sample_rt_t = (2.0 * sample_range) / C
+    k = sample_rt_t / Ts
+    k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
+    k_a = k - k_i  # Fractional parts
+    k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
+    interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
+    update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * sample_range))
+    weighted_magnitudes = np.sum(sample_weights[:, np.newaxis, np.newaxis] * np.abs(update), axis=0)
+
+
+    fig, ax1 = plt.subplots()
+    # surf = ax1.plot_surface(pos[..., 1], pos[..., 0], weighted_magnitudes, cmap=matplotlib.cm.coolwarm)
+    plt.contourf(pos[..., 1], pos[..., 0], weighted_magnitudes, cmap='viridis', levels=100)
+    plt.plot(pos_history[:, 0], pos_history[:, 1], color='red', linewidth=2)
+    plt.scatter(gt_pos[0], gt_pos[1], color='green', linewidths=2)
+    plt.show()
+
+
 if __name__ == "__main__":
     # Generate trajectory and odometry
     gt_traj_x = 1e-2 * np.arange(100)
@@ -263,15 +293,15 @@ if __name__ == "__main__":
     gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
     odom_cov = np.array([
-        [0.05, 0],
-        [0, 0.05]
+        [0.001, 0],
+        [0, 0.001]
     ])
     odom = odom_from_traj(gt_traj, odom_cov)
 
-    target_points = make_targets()
+    target_points = make_forest_targets()
     grid_pos, map = initialize_map()
 
-    n_init_poses = 20
+    n_init_poses = 50
     build_map_from_gt_traj(map, grid_pos, gt_traj[:n_init_poses], target_points)
 
     grid_extent = [0, grid_width, 0, grid_height]
@@ -285,46 +315,67 @@ if __name__ == "__main__":
     plt.show()
 
     # Start with a shitty prior
-    pos_prior_cov = odom_cov * 3
+    pos_prior_cov = odom_cov
     pos_prior = np.random.multivariate_normal(gt_traj[n_init_poses], pos_prior_cov)
+    print(pos_prior - gt_traj[n_init_poses])
 
     # Dead reckon initial poses
-    lag = 5
+    lag = 1
     pos = np.zeros((lag, 2))
     pos[0] = pos_prior
     for i in range(1, lag):
         pos[i] = pos[i-1] + odom[n_init_poses + i - 1]
 
+
     # SLAMMING
     for odom_i in range(n_init_poses-1, odom.shape[0]):
         # Simulate
-        pulses = np.empty((lag, signal_t.shape[0]))
+        gt_pos = gt_traj[odom_i+1]
+        pulses = np.empty((lag, signal_t.shape[0]), dtype=np.complex128)
         for i in range(lag):
-            signal = get_signal(pos[i], signal_t, target_points)
+            signal = get_signal(gt_pos, signal_t, target_points)
             pulses[i] = pulse_compress(signal, signal_t)
+
+        # Normalize map
+        map /= np.max(np.abs(map))
 
         # Sample map
         sample_idx = importance_sample(np.abs(map), 128)
         sample_coords = grid_pos[sample_idx[:, 1], sample_idx[:, 0]]
         sample_weights = np.abs(map)[sample_idx[:, 1], sample_idx[:, 0]]
 
-        gt_pos = gt_traj[odom_i+1]
-        print(f'Error before opt: {np.sum(np.linalg.norm(gt_pos - pos, axis=-1)**2)}')
 
-        for i in range(10):
+        err_x = np.linspace(0, 0.5, 50) - 0.25
+        err_y = np.linspace(0, 1, 50) - 0.5
+        err_x += gt_pos[0]
+        err_y += gt_pos[1]
+        err_x, err_y = np.meshgrid(np.flip(err_y), err_x, indexing='ij')
+        err_pos = np.stack((err_x, err_y), axis=-1)
+
+
+        print(f'Error before opt: {np.linalg.norm(gt_pos - pos, axis=-1)}')
+
+        n_iterations = 10
+        pos_history = np.empty((n_iterations+1, 2))
+        pos_history[0] = pos[0]
+        for i in range(n_iterations):
             A, b = build_amplitude_linear_system(pos,
-                                                 pulses, sample_coords, sample_weights, 1e4,
+                                                 pulses, sample_coords, sample_weights, 100,
                                                  odom[odom_i : odom_i+lag-1], odom_cov,
                                                  pos_prior, pos_prior_cov)
 
             x, residuals, rank, s = np.linalg.lstsq(A, b)
 
             dpos = x.reshape((lag, 2))
-            pos += dpos
+            pos +=  dpos
+            pos_history[i+1] = pos[0]
+
+        pos_history = np.array(pos_history)
+        plot_amplitude_error(sample_coords, sample_weights, err_pos, pulses[0], pos_history, gt_pos)
 
             # print(dpos, pos)
 
         gt_pos = gt_traj[odom_i+1]
-        print(f'Error after opt: {np.sum(np.linalg.norm(gt_pos - pos, axis=-1)**2)}')
+        print(f'Error after opt: {np.linalg.norm(gt_pos - pos, axis=-1)}')
 
         break
