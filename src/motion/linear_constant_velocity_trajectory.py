@@ -2,7 +2,7 @@ import numpy as np
 from spatialmath import SE3
 from typing import List
 
-from vehicle.trajectory import Trajectory
+from motion.trajectory import Trajectory
 
 
 class LinearConstantVelocityTrajectory(Trajectory):
@@ -76,6 +76,10 @@ class LinearConstantVelocityTrajectory(Trajectory):
     @property
     def time(self) -> np.array:
         return self._time
+
+    @property
+    def poses(self) -> List[SE3]:
+        return self._poses
 
     @property
     def position_world(self) -> np.array:

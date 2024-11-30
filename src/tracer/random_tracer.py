@@ -124,7 +124,7 @@ class Path:
             static_delays = self._segment_sink_delays[i] + total_delay
 
             attenuations[i] = total_attenuation + self._segment_sink_attenuations[i]
-            delays[i] = static_delays # TODO: Not accounting for vehicle moving forward to meet signal
+            delays[i] = static_delays # TODO: Not accounting for motion moving forward to meet signal
             # doppler_coeffs = 1 - sink_velocities_proj / self._c
             doppler_coeffs[i] = np.nan
 

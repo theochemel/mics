@@ -23,6 +23,11 @@ class Trajectory(ABC):
 
     @property
     @abstractmethod
+    def poses(self) -> List[SE3]:
+        pass
+
+    @property
+    @abstractmethod
     def position_world(self) -> np.array:
         pass
 

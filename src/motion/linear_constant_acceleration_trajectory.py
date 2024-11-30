@@ -2,20 +2,13 @@ import numpy as np
 from spatialmath import SE3
 from typing import List
 
-from vehicle.trajectory import Trajectory
+from motion.trajectory import Trajectory
 
 
 class LinearConstantAccelerationTrajectory(Trajectory):
 
     def __init__(self, keyposes: List[SE3], max_velocity: float, acceleration: float, dt: float):
         self._keyposes = keyposes
-
-        poses = []
-        positions = []
-        velocities = []
-        accelerations = []
-        orientations_rpy = []
-        angular_velocities = []
 
         a = acceleration
         vmax = max_velocity
@@ -46,6 +39,13 @@ class LinearConstantAccelerationTrajectory(Trajectory):
 
         self._time: np.array = dt * np.arange(np.ceil(self._duration / dt) + 1)
 
+        poses = []
+        positions = []
+        velocities = []
+        accelerations = []
+        orientations_rpy = []
+        angular_velocities = []
+
         segment_i = 0
 
         for time in self._time:
@@ -58,9 +58,6 @@ class LinearConstantAccelerationTrajectory(Trajectory):
             relative_pose = pose_end @ pose_start.inv()
 
             t = time - segment_start_times[segment_i]
-
-            print(f"t: {t}")
-            print(f"segment_i: {segment_i}")
 
             distance = np.linalg.norm(pose_end.t - pose_start.t)
             direction = (pose_end.t - pose_start.t) / distance
@@ -85,9 +82,8 @@ class LinearConstantAccelerationTrajectory(Trajectory):
 
             delta = d / distance
 
-            print(f"delta: {delta}")
-
             pose = pose_start.interp(pose_end, delta)
+            poses.append(pose)
 
             positions.append(pose.t)
             orientations_rpy.append(pose.rpy())
@@ -118,6 +114,10 @@ class LinearConstantAccelerationTrajectory(Trajectory):
     @property
     def time(self) -> np.array:
         return self._time
+
+    @property
+    def poses(self) -> List[SE3]:
+        return self._poses
 
     @property
     def position_world(self) -> np.array:
