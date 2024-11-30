@@ -2,6 +2,7 @@ import matplotlib
 import numpy as np
 import scipy as sp
 import matplotlib.pyplot as plt
+from sympy.printing.pretty.pretty_symbology import line_width
 
 C = 1500
 
@@ -39,7 +40,7 @@ def make_forest_targets():
     target_points_y = target_points_y.flatten()
     target_points_x = target_points_x.flatten()
     target_points = np.stack((target_points_x, target_points_y), axis=-1)
-    # target_points += np.random.normal(loc=0, scale=3e-1, size=target_points.shape)
+    target_points += np.random.normal(loc=0, scale=1e-1, size=target_points.shape)
     return target_points
 
 
@@ -94,12 +95,16 @@ def pulse_compress(signal, signal_t):
 MOTION SIM
 """
 
-def odom_from_traj(traj, cov):
+def odom_from_traj(traj, cov, clip_val=None, bias=None):
     odom = np.zeros((traj.shape[0] - 1, 2))
+    mean = np.zeros((2,))
     for i in range(1, traj.shape[0]):
-        mean = traj[i] - traj[i-1]
         sample = np.random.multivariate_normal(mean, cov)
-        odom[i-1] = sample
+        if bias is not None:
+            sample += bias
+        if clip_val:
+            sample = np.clip(sample, -clip_val, clip_val)
+        odom[i-1] = traj[i] - traj[i-1] + sample
 
     return odom
 
@@ -118,9 +123,8 @@ def initialize_map():
 
     return grid_pos, map
 
-def update_map(map, grid_pos, position, signal,
+def update_map(map, grid_pos, position, pulse,
                visualize=False, target_points=None):
-    pulse = pulse_compress(signal, signal_t)
 
     if visualize:
         pulse_range = (signal_t * C) / 2.0
@@ -151,24 +155,30 @@ def update_map(map, grid_pos, position, signal,
 
     update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * grid_range))
 
+    update /= np.max(update)
+
     map += update
 
     if visualize:
         grid_extent = [0, grid_width, 0, grid_height]
         plt.subplot(1, 2, 1)
         plt.imshow(np.abs(map), extent=grid_extent)
-        plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+        if target_points is not None:
+            plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
         plt.subplot(1, 2, 2)
         plt.imshow(np.angle(map), extent=grid_extent)
-        plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+        if target_points is not None:
+            plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
         plt.suptitle("Map")
         plt.show()
 
 
-def build_map_from_gt_traj(map, grid_pos, gt_traj, target_points):
-    for i, gt_position in enumerate(gt_traj):
+def build_map_from_traj(map, grid_pos, gt_traj, target_points, est_traj=None):
+    update_traj = est_traj if est_traj is not None else gt_traj
+    for i, (gt_position, update_pos) in enumerate(zip(gt_traj, update_traj)):
         signal = get_signal(gt_position, signal_t, target_points)
-        update_map(map, grid_pos, gt_position, signal)
+        pulse = pulse_compress(signal, signal_t)
+        update_map(map, grid_pos, update_pos, pulse)
 
 """
 SLAM
@@ -304,10 +314,8 @@ def get_phase_whitened_jacobian(phase_error, sample_dir, sample_weights, phase_v
     N_poses, N_samples = phase_error.shape
 
     phase_grad = 2 * K * sample_dir # N_poses x N_samples x 2
-    print(np.sum(sample_weights[np.newaxis, :, np.newaxis] * phase_grad, axis=1) / np.sum(sample_weights))
 
-    # sqrt_inv_var = 1 / np.sqrt(phase_var)
-    sqrt_inv_var = 1
+    sqrt_inv_var = 1 / np.sqrt(phase_var)
 
     A = np.zeros((N_poses * N_samples, N_poses * 2))
     for pose_i in range(N_poses):
@@ -316,7 +324,6 @@ def get_phase_whitened_jacobian(phase_error, sample_dir, sample_weights, phase_v
         A[t:t+N_samples, l:l+2] = sqrt_inv_var * sample_weights[:, np.newaxis] * phase_grad[pose_i]
 
     b = sqrt_inv_var * (sample_weights * phase_error).reshape(-1)
-    print((np.sum(sample_weights * phase_error)/np.sum(sample_weights)))
 
     return A, b
 
@@ -354,21 +361,19 @@ def build_phase_linear_system(poses,
 
     # Measurement Jacobian
     A = np.zeros((2 + N_odoms * 2 + N_samples * N_poses, N_poses * 2))
+
     b = np.empty((2 + N_odoms * 2 + N_samples * N_poses))
 
-    # A[:2, :2], b[:2] = get_pose_prior_whitened_jacobian(pose_prior, pose_prior_cov)
-    #
-    # A[2:N_odoms*2+2, :], b[2:N_odoms*2+2] = get_odometry_whitened_jacobian(odom, odom_cov)
+    A[:2, :2], b[:2] = get_pose_prior_whitened_jacobian(pose_prior, pose_prior_cov)
 
-    # A[-N_poses*N_samples:, :], b[-N_poses*N_samples:] = get_phase_whitened_jacobian(phase_error,
-    #                                                                                 sample_dir,
-    #                                                                                 sample_weights,
-    #                                                                                 phase_var)
+    A[2:N_odoms*2+2, :], b[2:N_odoms*2+2] = get_odometry_whitened_jacobian(odom, odom_cov)
 
-    return get_phase_whitened_jacobian(phase_error,
-                                       sample_dir,
-                                       sample_weights,
-                                       phase_var)
+    A[-N_poses*N_samples:, :], b[-N_poses*N_samples:] = get_phase_whitened_jacobian(phase_error,
+                                                                                    sample_dir,
+                                                                                    sample_weights,
+                                                                                    phase_var)
+
+    return A, b
 
 
 
@@ -423,9 +428,23 @@ def plot_phase_error(sample_coords, samples,
     plt.show()
 
 
+def visualize_map(map, traj=None, targets=None, ax=None):
+    grid_extent = [0, grid_width, 0, grid_height]
+    if ax is None:
+        fig, ax = plt.subplot()
+    ax.imshow(np.abs(map), extent=grid_extent)
+    if targets is not None:
+        ax.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+    if traj is not None:
+        ax.plot(traj[:, 0], traj[:, 1], linewidth=2)
+    if ax is None:
+        plt.suptitle("Map")
+        plt.show()
+
+
 if __name__ == "__main__":
     # Generate trajectory and odometry
-    gt_traj_x = 1e-2 * np.arange(100)
+    gt_traj_x = 3e-2 * np.arange(200)
     gt_traj_y = np.zeros_like(gt_traj_x)
     gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
@@ -435,13 +454,17 @@ if __name__ == "__main__":
         [odom_sigma**2, 0],
         [0, odom_sigma**2]
     ])
-    odom = odom_from_traj(gt_traj, odom_cov)
+    odom_clip_val = 0.0035
+    odom_bias = np.array([-0.001, 0.001])
+    odom = odom_from_traj(gt_traj, odom_cov, clip_val=odom_clip_val)
 
     target_points = make_forest_targets()
     grid_pos, map = initialize_map()
 
-    n_init_poses = 20
-    build_map_from_gt_traj(map, grid_pos, gt_traj[:n_init_poses], target_points)
+    slam_start_pose = 20
+    lag = 8
+
+    build_map_from_traj(map, grid_pos, gt_traj[:slam_start_pose - lag + 1], target_points)
 
     grid_extent = [0, grid_width, 0, grid_height]
     plt.subplot(1, 2, 1)
@@ -453,18 +476,6 @@ if __name__ == "__main__":
     plt.suptitle("Update")
     plt.show()
 
-    # Start with a shitty prior
-    pose_prior_cov = odom_cov
-    pose_prior = np.random.multivariate_normal(gt_traj[n_init_poses], pose_prior_cov)
-    print(pose_prior - gt_traj[n_init_poses])
-
-    # Dead reckon initial poses
-    lag = 3
-    poses = np.zeros((lag, 2))
-    poses[0] = pose_prior
-    for i in range(1, lag):
-        poses[i] = poses[i - 1] + odom[n_init_poses + i - 1]
-
     # Offset grid for error plotting
     l = C / chirp_fc
     offset_x = np.linspace(0, 2 * l, 20) - l
@@ -472,18 +483,34 @@ if __name__ == "__main__":
     offset_x, offset_y = np.meshgrid(np.flip(offset_y), offset_x, indexing='ij')
     err_pos = np.stack((offset_x, offset_y), axis=-1)
 
+    # Start with a shitty prior
+    pose_prior_cov = odom_cov
+    noise = np.random.multivariate_normal(np.zeros((2,)), pose_prior_cov)
+    pose_prior = gt_traj[slam_start_pose - lag] + np.clip(noise, -odom_clip_val, odom_clip_val)
+
+    # Initialize poses from ground truth
+    poses = np.zeros((lag, 2))
+    for i in range(lag):
+        noise = np.random.multivariate_normal(np.zeros((2,)), pose_prior_cov)
+        poses[i] = gt_traj[slam_start_pose - lag + 1 + i] + np.clip(noise, -odom_clip_val, odom_clip_val)
+
+    # Prepare pulses
+    pulses = np.empty((lag, signal_t.shape[0]), dtype=np.complex128)
+    for i in range(lag):
+        signal = get_signal(gt_traj[slam_start_pose - lag + 1 + i], signal_t, target_points)
+        pulses[i] = pulse_compress(signal, signal_t)
+
+    computed_trajectory = np.zeros_like(gt_traj)
+    computed_trajectory[:slam_start_pose] = gt_traj[:slam_start_pose]
+
     # SLAMMING
-    for last_pose_i in range(n_init_poses+lag-1, gt_traj.shape[0]):
+    for last_pose_i in range(slam_start_pose, gt_traj.shape[0]-1):
         first_pose_i = last_pose_i - lag + 1
-        # Simulate
-        gt_poses = gt_traj[first_pose_i:last_pose_i+1]
-        pulses = np.empty((lag, signal_t.shape[0]), dtype=np.complex128)
-        for i in range(lag):
-            signal = get_signal(gt_poses[i], signal_t, target_points)
-            pulses[i] = pulse_compress(signal, signal_t)
+
+        gt_poses = gt_traj[first_pose_i:last_pose_i + 1]  # for evaluation & sim only
 
         # Normalize map
-        map /= np.max(np.abs(map))
+        # map /= np.max(np.abs(map))
 
         # Sample map
         sample_idx = importance_sample(np.abs(map), 128)
@@ -499,8 +526,8 @@ if __name__ == "__main__":
             A, b = build_phase_linear_system(poses,
                                              pulses,
                                              sample_coords, samples,
-                                             1e-12,
-                                             odom[last_pose_i:last_pose_i + lag - 1], odom_cov,
+                                             1e-7,
+                                             odom[last_pose_i-lag+1:last_pose_i], odom_cov,
                                              pose_prior, pose_prior_cov)
 
             x = np.linalg.solve(A.T @ A, A.T @ b)
@@ -509,12 +536,47 @@ if __name__ == "__main__":
             poses += dpos
             pose_history[i + 1] = poses
 
-        pose_history = np.array(pose_history)
-
-        for i in range(lag):
-            plot_phase_error(sample_coords, samples, err_pos + gt_poses[i], pulses[i], pose_history[:, i], gt_pose=gt_poses[i])
-
-
-
         print(f'Error after opt: {np.linalg.norm(gt_poses - poses, axis=-1)}')
 
+        signal = get_signal(gt_poses[0], signal_t, target_points)
+        pulse = pulse_compress(signal, signal_t)
+        # plot_phase_error(sample_coords, samples, err_pos + gt_poses[0], pulse, pose_history[:, 0], gt_pose=gt_poses[0])
+
+        # Update map
+        update_map(map, grid_pos, poses[0], pulse, visualize=False)
+        computed_trajectory[last_pose_i-lag+1] = poses[0]
+
+
+        # Marginalize out first pose
+        # Todo: handle covariance properly
+        pose_prior = poses[0] + odom[last_pose_i-lag+1]
+
+        # Add initial value for next pose
+        next_pose = poses[-1] + odom[last_pose_i]
+        poses[:-1] = poses[1:]
+        poses[-1] = next_pose
+
+        # Compute next pulse
+        # SIMULATION START
+        next_gt_pose = gt_traj[last_pose_i + 1]
+        signal = get_signal(next_gt_pose, signal_t, target_points)
+        pulses[:-1] = pulses[1:]
+        pulses[-1] = pulse_compress(signal, signal_t)
+        # SIMULATION END
+
+
+    dead_reckon_traj = np.empty_like(gt_traj)
+    dead_reckon_traj[:slam_start_pose] = gt_traj[:slam_start_pose]
+    for i in range(slam_start_pose, dead_reckon_traj.shape[0]):
+        dead_reckon_traj[i] = dead_reckon_traj[i-1] + odom[i-1]
+
+    _, dead_reckon_map = initialize_map()
+    _, gt_map = initialize_map()
+    build_map_from_traj(dead_reckon_map, grid_pos, gt_traj, target_points, est_traj=dead_reckon_traj)
+    build_map_from_traj(gt_map, grid_pos, gt_traj, target_points)
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+    visualize_map(map, computed_trajectory, target_points, ax=ax1)
+    visualize_map(gt_map, gt_traj, target_points, ax=ax2)
+    visualize_map(dead_reckon_map, dead_reckon_traj, target_points, ax=ax3)
+    plt.show()
