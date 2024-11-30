@@ -3,8 +3,6 @@ import numpy as np
 import scipy as sp
 import matplotlib.pyplot as plt
 
-from tracer.scene import Scene
-
 C = 1500
 
 chirp_fc = 75e3
@@ -12,6 +10,7 @@ chirp_bw = 50e3
 chirp_duration = 1e-3
 chirp_K = chirp_bw / chirp_duration
 K = 2 * np.pi * chirp_fc / C
+w = 2 * np.pi * chirp_fc
 
 chirp_fhi = chirp_fc + chirp_bw / 2
 
@@ -188,18 +187,27 @@ def importance_sample(img, n_samples):
     return np.stack((sample_x, sample_y), axis=-1)
 
 
-def build_amplitude_linear_system(pos,
+def compute_sample_roundtrip_t(sample_coords, poses):
+    sample_vec = sample_coords[np.newaxis, :] - poses[:, np.newaxis]
+    sample_range = np.linalg.norm(sample_vec, axis=-1)
+    sample_dir = sample_vec / sample_range[:, :, np.newaxis]  # N_poses x N_samples x 2
+    sample_rt_t = 2 * sample_range / C
+
+    return sample_rt_t, sample_dir
+
+
+def build_amplitude_linear_system(poses,
                                   pulses, map_sample_coords, map_sample_weights, pulse_scale_factor,
                                   odom, odom_cov,
                                   pos_prior, pos_prior_cov):
     # Dimensions
-    N_poses = pos.shape[0]
+    N_poses = poses.shape[0]
     N_odoms = odom.shape[0]
     assert N_poses == N_odoms + 1
     N_samples = map_sample_coords.shape[0]
 
     # Samples
-    sample_vec = map_sample_coords[np.newaxis, :] - pos[:, np.newaxis]
+    sample_vec = map_sample_coords[np.newaxis, :] - poses[:, np.newaxis]
     sample_range = np.linalg.norm(sample_vec, axis=-1)
     sample_dir = sample_vec / sample_range[:, :, np.newaxis]  # N_poses x N_samples x 2
     sample_rt_t = 2 * sample_range / C
@@ -253,15 +261,115 @@ def build_amplitude_linear_system(pos,
     # Residuals
     b = np.zeros(2 + N_odoms * 2 + N_samples * N_poses)
 
-    b[:2] = inv_sqrt_pos_prior @ (pos[0] - pos_prior)
+    b[:2] = inv_sqrt_pos_prior @ (poses[0] - pos_prior)
 
-    h_odom = np.diff(pos, axis=0)
+    h_odom = np.diff(poses, axis=0)
     odom_error = odom - h_odom
     b[2 : 2+N_odoms*2] = (inv_sqrt_odom @ odom_error.T).T.reshape(-1)
 
     b[2+N_odoms*2:] = (map_sample_weights * pulses).reshape(-1)
 
     return A, b
+
+
+def get_pose_prior_whitened_jacobian(pose, cov):
+    sqrt_inv_cov = np.linalg.inv(sp.linalg.sqrtm(cov))
+    A = sqrt_inv_cov  # @ np.eye(2)
+    b = sqrt_inv_cov @ pose
+    return A, b
+
+
+def get_odometry_whitened_jacobian(odom, cov):
+
+    N_odoms = odom.shape[0]
+
+    H_odom = np.array([
+        [-1, 0, 1, 0],
+        [0, -1, 0, 1]
+    ])
+    sqrt_inv_cov = np.linalg.inv(sp.linalg.sqrtm(cov))
+    A_odom = sqrt_inv_cov @ H_odom
+
+    A = np.zeros((N_odoms * 2, N_odoms * 2 + 2))
+    for j in range(0, N_odoms * 2, 2):
+        A[j:j+2, j:j+4] = A_odom
+
+    b = (sqrt_inv_cov @ odom.T).T.reshape(-1)
+
+    return A, b
+
+
+def get_phase_whitened_jacobian(phase_error, sample_dir, sample_weights, phase_var):
+
+    N_poses, N_samples = phase_error.shape
+
+    phase_grad = 2 * K * sample_dir # N_poses x N_samples x 2
+    print(np.sum(sample_weights[np.newaxis, :, np.newaxis] * phase_grad, axis=1) / np.sum(sample_weights))
+
+    # sqrt_inv_var = 1 / np.sqrt(phase_var)
+    sqrt_inv_var = 1
+
+    A = np.zeros((N_poses * N_samples, N_poses * 2))
+    for pose_i in range(N_poses):
+        l = 2 * pose_i
+        t = N_samples * pose_i
+        A[t:t+N_samples, l:l+2] = sqrt_inv_var * sample_weights[:, np.newaxis] * phase_grad[pose_i]
+
+    b = sqrt_inv_var * (sample_weights * phase_error).reshape(-1)
+    print((np.sum(sample_weights * phase_error)/np.sum(sample_weights)))
+
+    return A, b
+
+
+def build_phase_linear_system(poses,
+                              pulses, map_sample_coords, map_samples, phase_var,
+                              odom, odom_cov,
+                              pose_prior, pose_prior_cov):
+    # Dimensions
+    N_poses = poses.shape[0]
+    N_odoms = odom.shape[0]
+    assert N_poses == N_odoms + 1
+    N_samples = map_sample_coords.shape[0]
+
+    sample_rt_t, sample_dir = compute_sample_roundtrip_t(map_sample_coords, poses)  # N_poses x N_samples
+
+    # Pulse interpolation
+    k = sample_rt_t / Ts
+    k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
+    k_a = k - k_i  # Fractional parts
+    k_i_plus_1 = np.clip(k_i + 1, 0, pulses.shape[1] - 1)  # Upper bounds (clipped)
+    row_indices = np.arange(N_poses)[:, np.newaxis]
+    row_indices = np.repeat(row_indices, N_samples, axis=1)
+
+    pulses = (1 - k_a) * pulses[row_indices, k_i] + k_a * pulses[row_indices, k_i_plus_1]
+
+    # update = pulses * np.exp(w * sample_rt_t)  # N_poses x N_samples
+    update = pulses * np.exp(1j * w * sample_rt_t)
+
+    sample_phases = np.angle(map_samples)
+    sample_weights = np.abs(map_samples)
+
+    est_phase = np.angle(update)
+    phase_error = wrap2pi(est_phase - sample_phases)
+
+    # Measurement Jacobian
+    A = np.zeros((2 + N_odoms * 2 + N_samples * N_poses, N_poses * 2))
+    b = np.empty((2 + N_odoms * 2 + N_samples * N_poses))
+
+    # A[:2, :2], b[:2] = get_pose_prior_whitened_jacobian(pose_prior, pose_prior_cov)
+    #
+    # A[2:N_odoms*2+2, :], b[2:N_odoms*2+2] = get_odometry_whitened_jacobian(odom, odom_cov)
+
+    # A[-N_poses*N_samples:, :], b[-N_poses*N_samples:] = get_phase_whitened_jacobian(phase_error,
+    #                                                                                 sample_dir,
+    #                                                                                 sample_weights,
+    #                                                                                 phase_var)
+
+    return get_phase_whitened_jacobian(phase_error,
+                                       sample_dir,
+                                       sample_weights,
+                                       phase_var)
+
 
 
 def plot_amplitude_error(sample_coords, sample_weights,
@@ -274,9 +382,8 @@ def plot_amplitude_error(sample_coords, sample_weights,
     k_a = k - k_i  # Fractional parts
     k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
     interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
-    update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * sample_range))
+    update = interp_pulse * np.exp(2.0j * w * sample_rt_t)
     weighted_magnitudes = np.sum(sample_weights[:, np.newaxis, np.newaxis] * np.abs(update), axis=0)
-
 
     fig, ax1 = plt.subplots()
     # surf = ax1.plot_surface(pos[..., 1], pos[..., 0], weighted_magnitudes, cmap=matplotlib.cm.coolwarm)
@@ -286,22 +393,54 @@ def plot_amplitude_error(sample_coords, sample_weights,
     plt.show()
 
 
+def plot_phase_error(sample_coords, samples,
+                     poses, pulse, pose_history=None, gt_pose=None):
+
+    sample_weights = np.abs(samples)
+    sample_phases = np.angle(samples)
+
+    sample_range = np.linalg.norm(sample_coords[:, np.newaxis, np.newaxis] - poses[np.newaxis], axis=-1)
+    sample_rt_t = (2.0 * sample_range) / C
+    k = sample_rt_t / Ts
+    k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
+    k_a = k - k_i  # Fractional parts
+    k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
+    interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
+    update = interp_pulse * np.exp(1.0j * w * sample_rt_t)
+    est_phase = np.angle(update)
+    avg_phase_error = np.sum(
+        sample_weights[:, np.newaxis, np.newaxis] * (wrap2pi(sample_phases[:, np.newaxis, np.newaxis] - est_phase))**2, axis=0
+    ) / np.sum(sample_weights)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, subplot_kw=dict(projection=None))
+    ax2 = fig.add_subplot(122, projection='3d')
+    ax1.contourf(poses[..., 0], poses[..., 1], avg_phase_error, cmap='viridis', levels=100)
+    ax2.plot_surface(poses[..., 0], poses[..., 1], avg_phase_error, cmap=matplotlib.cm.coolwarm)
+    if pose_history is not None:
+        ax1.plot(pose_history[:, 0], pose_history[:, 1], color='red', linewidth=2)
+    if gt_pose is not None:
+        ax1.scatter(gt_pose[0], gt_pose[1], color='green', linewidths=2)
+    plt.show()
+
+
 if __name__ == "__main__":
     # Generate trajectory and odometry
     gt_traj_x = 1e-2 * np.arange(100)
     gt_traj_y = np.zeros_like(gt_traj_x)
     gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
+    odom_sigma = (C / chirp_fhi) / 4
+    print(f"odom std dev: {odom_sigma}")
     odom_cov = np.array([
-        [0.001, 0],
-        [0, 0.001]
+        [odom_sigma**2, 0],
+        [0, odom_sigma**2]
     ])
     odom = odom_from_traj(gt_traj, odom_cov)
 
     target_points = make_forest_targets()
     grid_pos, map = initialize_map()
 
-    n_init_poses = 50
+    n_init_poses = 20
     build_map_from_gt_traj(map, grid_pos, gt_traj[:n_init_poses], target_points)
 
     grid_extent = [0, grid_width, 0, grid_height]
@@ -315,25 +454,32 @@ if __name__ == "__main__":
     plt.show()
 
     # Start with a shitty prior
-    pos_prior_cov = odom_cov
-    pos_prior = np.random.multivariate_normal(gt_traj[n_init_poses], pos_prior_cov)
-    print(pos_prior - gt_traj[n_init_poses])
+    pose_prior_cov = odom_cov
+    pose_prior = np.random.multivariate_normal(gt_traj[n_init_poses], pose_prior_cov)
+    print(pose_prior - gt_traj[n_init_poses])
 
     # Dead reckon initial poses
-    lag = 1
-    pos = np.zeros((lag, 2))
-    pos[0] = pos_prior
+    lag = 3
+    poses = np.zeros((lag, 2))
+    poses[0] = pose_prior
     for i in range(1, lag):
-        pos[i] = pos[i-1] + odom[n_init_poses + i - 1]
+        poses[i] = poses[i - 1] + odom[n_init_poses + i - 1]
 
+    # Offset grid for error plotting
+    l = C / chirp_fc
+    offset_x = np.linspace(0, 2 * l, 20) - l
+    offset_y = np.linspace(0, 2 * l, 20) - l
+    offset_x, offset_y = np.meshgrid(np.flip(offset_y), offset_x, indexing='ij')
+    err_pos = np.stack((offset_x, offset_y), axis=-1)
 
     # SLAMMING
-    for odom_i in range(n_init_poses-1, odom.shape[0]):
+    for last_pose_i in range(n_init_poses+lag-1, gt_traj.shape[0]):
+        first_pose_i = last_pose_i - lag + 1
         # Simulate
-        gt_pos = gt_traj[odom_i+1]
+        gt_poses = gt_traj[first_pose_i:last_pose_i+1]
         pulses = np.empty((lag, signal_t.shape[0]), dtype=np.complex128)
         for i in range(lag):
-            signal = get_signal(gt_pos, signal_t, target_points)
+            signal = get_signal(gt_poses[i], signal_t, target_points)
             pulses[i] = pulse_compress(signal, signal_t)
 
         # Normalize map
@@ -342,40 +488,33 @@ if __name__ == "__main__":
         # Sample map
         sample_idx = importance_sample(np.abs(map), 128)
         sample_coords = grid_pos[sample_idx[:, 1], sample_idx[:, 0]]
-        sample_weights = np.abs(map)[sample_idx[:, 1], sample_idx[:, 0]]
+        samples = map[sample_idx[:, 1], sample_idx[:, 0]]
 
-
-        err_x = np.linspace(0, 0.5, 50) - 0.25
-        err_y = np.linspace(0, 1, 50) - 0.5
-        err_x += gt_pos[0]
-        err_y += gt_pos[1]
-        err_x, err_y = np.meshgrid(np.flip(err_y), err_x, indexing='ij')
-        err_pos = np.stack((err_x, err_y), axis=-1)
-
-
-        print(f'Error before opt: {np.linalg.norm(gt_pos - pos, axis=-1)}')
+        print(f'Errors before opt: {np.linalg.norm(gt_poses - poses, axis=-1)}')
 
         n_iterations = 10
-        pos_history = np.empty((n_iterations+1, 2))
-        pos_history[0] = pos[0]
+        pose_history = np.empty((n_iterations + 1,) + poses.shape)
+        pose_history[0] = poses
         for i in range(n_iterations):
-            A, b = build_amplitude_linear_system(pos,
-                                                 pulses, sample_coords, sample_weights, 100,
-                                                 odom[odom_i : odom_i+lag-1], odom_cov,
-                                                 pos_prior, pos_prior_cov)
+            A, b = build_phase_linear_system(poses,
+                                             pulses,
+                                             sample_coords, samples,
+                                             1e-12,
+                                             odom[last_pose_i:last_pose_i + lag - 1], odom_cov,
+                                             pose_prior, pose_prior_cov)
 
-            x, residuals, rank, s = np.linalg.lstsq(A, b)
+            x = np.linalg.solve(A.T @ A, A.T @ b)
 
             dpos = x.reshape((lag, 2))
-            pos +=  dpos
-            pos_history[i+1] = pos[0]
+            poses += dpos
+            pose_history[i + 1] = poses
 
-        pos_history = np.array(pos_history)
-        plot_amplitude_error(sample_coords, sample_weights, err_pos, pulses[0], pos_history, gt_pos)
+        pose_history = np.array(pose_history)
 
-            # print(dpos, pos)
+        for i in range(lag):
+            plot_phase_error(sample_coords, samples, err_pos + gt_poses[i], pulses[i], pose_history[:, i], gt_pose=gt_poses[i])
 
-        gt_pos = gt_traj[odom_i+1]
-        print(f'Error after opt: {np.linalg.norm(gt_pos - pos, axis=-1)}')
 
-        break
+
+        print(f'Error after opt: {np.linalg.norm(gt_poses - poses, axis=-1)}')
+
