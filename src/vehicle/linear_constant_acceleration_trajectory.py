@@ -10,7 +10,6 @@ class LinearConstantAccelerationTrajectory(Trajectory):
     def __init__(self, keyposes: List[SE3], max_velocity: float, acceleration: float, dt: float):
         self._keyposes = keyposes
 
-        times = []
         poses = []
         positions = []
         velocities = []
@@ -21,6 +20,8 @@ class LinearConstantAccelerationTrajectory(Trajectory):
         a = acceleration
         vmax = max_velocity
 
+        segment_durations = np.empty((len(keyposes) - 1,))
+
         for segment_i in range(len(keyposes) - 1):
             pose_start = self._keyposes[segment_i]
             pose_end = self._keyposes[segment_i + 1]
@@ -28,8 +29,76 @@ class LinearConstantAccelerationTrajectory(Trajectory):
             distance = np.linalg.norm(pose_start.t - pose_end.t)
 
             vmax_reached = distance > (vmax ** 2) / a
-
             t_acc = vmax / a
+            d_acc = 0.5 * a * t_acc ** 2
+            t_const = (distance - 2 * d_acc) / vmax if vmax_reached else 0.0
+
+            t_total = t_const + 2 * t_acc
+
+            segment_durations[segment_i] = t_total
+
+        segment_start_times: np.array = np.concatenate((
+            np.array([0]),
+            np.cumsum(segment_durations[:-1]),
+        ))
+
+        self._duration: float = np.sum(segment_durations)
+
+        self._time: np.array = dt * np.arange(np.ceil(self._duration / dt) + 1)
+
+        segment_i = 0
+
+        for time in self._time:
+            if segment_i + 1 < len(segment_start_times) and time >= segment_start_times[segment_i + 1]:
+                segment_i += 1
+
+            pose_start = self._keyposes[segment_i]
+            pose_end = self._keyposes[segment_i + 1]
+
+            relative_pose = pose_end @ pose_start.inv()
+
+            t = time - segment_start_times[segment_i]
+
+            print(f"t: {t}")
+            print(f"segment_i: {segment_i}")
+
+            distance = np.linalg.norm(pose_end.t - pose_start.t)
+            direction = (pose_end.t - pose_start.t) / distance
+
+            vmax_reached = distance > (vmax ** 2) / a
+            t_acc = vmax / a
+            d_acc = 0.5 * a * t_acc ** 2
+            t_const = (distance - 2 * d_acc) / vmax if vmax_reached else 0.0
+
+            if t < t_acc:
+                d = 0.5 * a * t ** 2
+                v = a * t
+                acc = a
+            elif t < t_const + t_acc:
+                d = 0.5 * a * t_acc ** 2 + vmax * (t - t_acc)
+                v = vmax
+                acc = 0
+            else:
+                d = 0.5 * a * t_acc ** 2 + vmax * t_const + vmax * (t - t_const - t_acc) - 0.5 * a * (t - t_const - t_acc) ** 2
+                v = vmax - a * (t - t_const - t_acc)
+                acc = -a
+
+            delta = d / distance
+
+            print(f"delta: {delta}")
+
+            pose = pose_start.interp(pose_end, delta)
+
+            positions.append(pose.t)
+            orientations_rpy.append(pose.rpy())
+            velocities.append(v * direction)
+            accelerations.append(acc * direction)
+
+            rot_theta, rot_vec = relative_pose.angvec()
+
+            angular_velocities.append(
+                (v / distance) * rot_theta * rot_vec
+            )
 
         self._poses = poses
         self._positions = np.array(positions)
@@ -73,20 +142,20 @@ class LinearConstantAccelerationTrajectory(Trajectory):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from visualization.visualize_trajectory import plot_trajectory_xy
+    from visualization.visualize_trajectory import plot_trajectory_traces
 
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
             SE3.Trans(0.0, 0.0, 0.0),
             SE3.Trans(1.0, 0.0, 0.0),
-            SE3.Trans(1.0, 1.0, 0.0),
+            SE3.Trans(0.0, 1.0, 0.0),
         ],
         max_velocity=0.1,
         acceleration=0.1,
         dt=0.05,
     )
 
-    fig = plot_trajectory_xy(trajectory)
+    fig = plot_trajectory_traces(trajectory)
 
     fig.show()
     plt.show()
