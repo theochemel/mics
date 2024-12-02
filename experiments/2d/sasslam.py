@@ -162,6 +162,13 @@ def update_map(map, grid_pos, position, pulse,
 
     update /= np.max(update)
 
+    # if position[0] > 0.5:
+    #     grid_extent = [0, grid_width, 0, grid_height]
+    #     plt.imshow(np.abs(map), extent=grid_extent)
+    #     plt.show()
+    #     plt.imshow(np.abs(update), extent=grid_extent)
+    #     plt.show()
+
     map += update
 
     if visualize:
@@ -381,76 +388,67 @@ def build_phase_linear_system(poses,
     return A, b
 
 
-
-def plot_amplitude_error(sample_coords, sample_weights,
-                         pos, pulse, pos_history, gt_pos):
-
-    sample_range = np.linalg.norm(sample_coords[:, np.newaxis, np.newaxis] - pos[np.newaxis], axis=-1)
-    sample_rt_t = (2.0 * sample_range) / C
-    k = sample_rt_t / Ts
-    k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
-    k_a = k - k_i  # Fractional parts
-    k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
-    interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
-    update = interp_pulse * np.exp(2.0j * w * sample_rt_t)
-    weighted_magnitudes = np.sum(sample_weights[:, np.newaxis, np.newaxis] * np.abs(update), axis=0)
-
-    fig, ax1 = plt.subplots()
-    # surf = ax1.plot_surface(pos[..., 1], pos[..., 0], weighted_magnitudes, cmap=matplotlib.cm.coolwarm)
-    plt.contourf(pos[..., 1], pos[..., 0], weighted_magnitudes, cmap='viridis', levels=100)
-    plt.plot(pos_history[:, 0], pos_history[:, 1], color='red', linewidth=2)
-    plt.scatter(gt_pos[0], gt_pos[1], color='green', linewidths=2)
-    plt.show()
-
-
 def plot_phase_error(sample_coords, samples,
-                     poses, pulse, pose_history=None, gt_pose=None):
+                     n_lambda, pulses, gt_poses, fc, pose_history=None):
 
     sample_weights = np.abs(samples)
     sample_phases = np.angle(samples)
 
-    sample_range = np.linalg.norm(sample_coords[:, np.newaxis, np.newaxis] - poses[np.newaxis], axis=-1)
-    sample_rt_t = (2.0 * sample_range) / C
-    k = sample_rt_t / Ts
-    k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
-    k_a = k - k_i  # Fractional parts
-    k_i_plus_1 = np.clip(k_i + 1, 0, len(pulse) - 1)  # Upper bounds (clipped)
-    interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
-    update = interp_pulse * np.exp(1.0j * w * sample_rt_t)
-    est_phase = np.angle(update)
-    avg_phase_error = np.sum(
-        sample_weights[:, np.newaxis, np.newaxis] * (wrap2pi(sample_phases[:, np.newaxis, np.newaxis] - est_phase))**2, axis=0
-    ) / np.sum(sample_weights)
+    N_poses = len(gt_poses)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, subplot_kw=dict(projection=None))
-    ax2 = fig.add_subplot(122, projection='3d')
-    ax1.contourf(poses[..., 0], poses[..., 1], avg_phase_error, cmap='viridis', levels=100)
-    ax2.plot_surface(poses[..., 0], poses[..., 1], avg_phase_error, cmap=matplotlib.cm.coolwarm)
-    if pose_history is not None:
-        ax1.plot(pose_history[:, 0], pose_history[:, 1], color='red', linewidth=2)
-    if gt_pose is not None:
-        ax1.scatter(gt_pose[0], gt_pose[1], color='green', linewidths=2)
+    l = C / fc
+    xx = np.linspace(0, 2 * n_lambda * l, int(2 * n_lambda * 8)) - n_lambda * l
+    yy = np.linspace(0, 2 * n_lambda * l, int(2 * n_lambda * 8)) - n_lambda * l
+    xx, yy = np.meshgrid(np.flip(yy), xx, indexing='ij')
+    offset_grid = np.stack((xx, yy), axis=-1)
+
+    fig, axes = plt.subplots(2, int(np.ceil(N_poses / 2)))
+    axes = axes.reshape(-1)
+    for i in range(N_poses):
+        grid = offset_grid + gt_poses[i]
+        sample_range = np.linalg.norm(sample_coords[:, np.newaxis, np.newaxis] - grid[np.newaxis], axis=-1)
+        sample_rt_t = (2.0 * sample_range) / C
+        k = sample_rt_t / Ts
+        k_i = np.floor(k).astype(int)  # Lower bounds (integer indices)
+        k_a = k - k_i  # Fractional parts
+        k_i_plus_1 = np.clip(k_i + 1, 0, pulses.shape[1] - 1)  # Upper bounds (clipped)
+        interp_pulse = (1 - k_a) * pulses[i, k_i] + k_a * pulses[i, k_i_plus_1]
+        w = 2 * np.pi * fc
+        update = interp_pulse * np.exp(1.0j * w * sample_rt_t)
+        est_phase = np.angle(update)
+        avg_phase_error = np.sum(
+            sample_weights[:, np.newaxis, np.newaxis] * (wrap2pi(sample_phases[:, np.newaxis, np.newaxis] - est_phase))**2, axis=0
+        ) / np.sum(sample_weights)
+
+        axes[i].contourf(grid[..., 0], grid[..., 1], avg_phase_error, cmap='viridis', levels=100)
+        axes[i].scatter(gt_poses[i, 0], gt_poses[i, 1], color='green', linewidths=2)
+        if pose_history is not None:
+            axes[i].plot(pose_history[:, i, 0], pose_history[:, i, 1], color='red', linewidth=2)
+        axes[i].set_title(f'State {i}')
     plt.show()
 
 
 def visualize_map(map, traj=None, targets=None, ax=None):
     grid_extent = [0, grid_width, 0, grid_height]
     if ax is None:
-        fig, ax = plt.subplot()
-    ax.imshow(np.abs(map), extent=grid_extent)
+        fig, _ax = plt.subplots()
+    else:
+        _ax = ax
+    _ax.imshow(np.abs(map), extent=grid_extent)
     if targets is not None:
-        ax.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+        pass
+        # _ax.scatter(target_points[:, 0], target_points[:, 1], facecolors='none', edgecolors="r")
     if traj is not None:
-        ax.plot(traj[:, 0], traj[:, 1], linewidth=2)
+        _ax.plot(traj[:-8, 0], traj[:-8, 1], linewidth=2, color='red')
     if ax is None:
-        plt.suptitle("Map")
+        # plt.suptitle("Map")
         plt.show()
 
 
 if __name__ == "__main__":
     # Generate trajectory and odometry
-    gt_traj_x = 3e-2 * np.arange(200)
-    gt_traj_y = np.zeros_like(gt_traj_x)
+    gt_traj_x = 3e-2 * np.arange(150)
+    gt_traj_y = 0.2 * np.ones_like(gt_traj_x)
     gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
     odom_sigma = (C / chirp_fhi) / 4
@@ -466,7 +464,7 @@ if __name__ == "__main__":
     target_points = make_corner_target()
     grid_pos, map = initialize_map()
 
-    slam_start_pose = 20
+    slam_start_pose = 30
     lag = 8
 
     build_map_from_traj(map, grid_pos, gt_traj[:slam_start_pose - lag + 1], target_points)
@@ -474,12 +472,13 @@ if __name__ == "__main__":
     grid_extent = [0, grid_width, 0, grid_height]
     plt.subplot(1, 2, 1)
     plt.imshow(np.abs(map), extent=grid_extent)
-    plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
-    plt.subplot(1, 2, 2)
-    plt.imshow(np.angle(map), extent=grid_extent)
-    plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
-    plt.suptitle("Update")
+    # plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
     plt.show()
+
+    # plt.subplot(1, 2, 2)
+    # plt.imshow(np.angle(map), extent=grid_extent)
+    # plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+    # plt.suptitle("Update")
 
     # Offset grid for error plotting
     l = C / chirp_fc
@@ -546,6 +545,8 @@ if __name__ == "__main__":
         signal = get_signal(gt_poses[0], signal_t, target_points)
         pulse = pulse_compress(signal, signal_t)
         # plot_phase_error(sample_coords, samples, err_pos + gt_poses[0], pulse, pose_history[:, 0], gt_pose=gt_poses[0])
+        # plot_phase_error(sample_coords, samples, 1.5, pulses, gt_poses, chirp_fc,
+        #                  pose_history=pose_history[..., :2])
 
         # Update map
         update_map(map, grid_pos, poses[0], pulse, visualize=False)
@@ -580,8 +581,7 @@ if __name__ == "__main__":
     build_map_from_traj(dead_reckon_map, grid_pos, gt_traj, target_points, est_traj=dead_reckon_traj)
     build_map_from_traj(gt_map, grid_pos, gt_traj, target_points)
 
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
-    visualize_map(map, computed_trajectory, target_points, ax=ax1)
-    visualize_map(gt_map, gt_traj, target_points, ax=ax2)
-    visualize_map(dead_reckon_map, dead_reckon_traj, target_points, ax=ax3)
-    plt.show()
+    # fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+    visualize_map(map, computed_trajectory, target_points)
+    visualize_map(gt_map, gt_traj, target_points)
+    visualize_map(dead_reckon_map, dead_reckon_traj, target_points)
