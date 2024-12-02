@@ -9,19 +9,10 @@ from motion.linear_constant_acceleration_trajectory import LinearConstantAcceler
 
 C = 1500
 
-chirp_fc = 75e3
-chirp_bw = 50e3
-chirp_duration = 1e-3
-chirp_K = chirp_bw / chirp_duration
-K = 2 * np.pi * chirp_fc / C
-w = 2 * np.pi * chirp_fc
-
-chirp_fhi = chirp_fc + chirp_bw / 2
 
 fs = 1e6
 Ts = 1 / fs
 
-l_m = C / chirp_fhi
 
 max_range = 20
 max_rt_t = (2 * max_range) / C
@@ -63,8 +54,7 @@ def make_corner_target():
 def wrap2pi(x):
     return (x + np.pi) % (2 * np.pi) - np.pi
 
-
-def cosine_envelope(t):
+def cosine_envelope(t, chirp_duration):
     return np.where(
         (t >= -chirp_duration / 2) & (t <= chirp_duration / 2),
         # (1 / chirp_duration) * np.cos(np.pi * t / chirp_duration) ** 2,
@@ -72,31 +62,27 @@ def cosine_envelope(t):
         0
     )
 
-
-def chirp(t):
-    return cosine_envelope(t) * np.exp(2.0j * np.pi * chirp_fc * t + 1.0j * np.pi * chirp_K * t ** 2)
-
+def chirp(t, fc, chirp_K, chirp_duration):
+    return cosine_envelope(t, chirp_duration) * np.exp(2.0j * np.pi * fc * t + 1.0j * np.pi * chirp_K * t ** 2)
 
 
+def baseband_chirp(t, chirp_K, chirp_duration):
+    return cosine_envelope(t, chirp_duration) * np.exp(1.0j * np.pi * chirp_K * t ** 2)
 
-def reference_chirp(t):
-    return cosine_envelope(t) * np.exp(1.0j * np.pi * chirp_K * t ** 2)
 
-
-def get_signal(position, signal_t, target_points):
+def get_signal(position, signal_t, target_points, fc, chirp_K, chirp_duration):
     signal = np.zeros_like(signal_t, dtype=np.complex128)
 
     for target_point in target_points:
         target_rt_t = (2 * np.linalg.norm(target_point - position)) / C
 
-        signal += chirp(signal_t - target_rt_t)
+        signal += chirp(signal_t - target_rt_t, fc, chirp_K, chirp_duration)
 
-    return signal * np.exp(-2.0j * np.pi * chirp_fc * signal_t)
+    return signal * np.exp(-2.0j * np.pi * fc * signal_t)
 
-
-def pulse_compress(signal, signal_t):
+def pulse_compress(signal, signal_t, chirp_K, chirp_duration):
     reference_signal_t = Ts * np.arange(int(chirp_duration / Ts)) - (chirp_duration / 2)
-    reference_signal = reference_chirp(reference_signal_t)
+    reference_signal = baseband_chirp(reference_signal_t, chirp_K, chirp_duration)
 
     correlation = sp.signal.correlate(signal, reference_signal, mode="same")
 
@@ -118,13 +104,13 @@ def initialize_map():
 
     return grid_pos, map
 
-def update_map(map, grid_pos, position, pulse,
+def update_map(map, grid_pos, position, pulse, fc,
                visualize=False, target_points=None):
 
     if visualize:
         pulse_range = (signal_t * C) / 2.0
 
-        pulse_update = pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * pulse_range))
+        pulse_update = pulse * np.exp((2.0j * np.pi * fc / C) * (2.0 * pulse_range))
 
         plt.plot(pulse_range, np.real(pulse_update))
         plt.plot(pulse_range, np.imag(pulse_update))
@@ -148,7 +134,7 @@ def update_map(map, grid_pos, position, pulse,
     # Perform linear interpolation
     interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
 
-    update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * grid_range))
+    update = interp_pulse * np.exp((2.0j * np.pi * fc / C) * (2.0 * grid_range))
 
     update /= np.max(update)
 
@@ -168,12 +154,12 @@ def update_map(map, grid_pos, position, pulse,
         plt.show()
 
 
-def build_map_from_traj(map, grid_pos, gt_traj, target_points, est_traj=None):
+def build_map_from_traj(map, grid_pos, gt_traj, target_points, fc, chirp_K, chirp_duration, est_traj=None):
     update_traj = est_traj if est_traj is not None else gt_traj
     for i, (gt_position, update_pos) in enumerate(zip(gt_traj, update_traj)):
-        signal = get_signal(gt_position, signal_t, target_points)
-        pulse = pulse_compress(signal, signal_t)
-        update_map(map, grid_pos, update_pos, pulse)
+        signal = get_signal(gt_position, signal_t, target_points, fc, chirp_K, chirp_duration)
+        pulse = pulse_compress(signal, signal_t, chirp_K, chirp_duration)
+        update_map(map, grid_pos, update_pos, pulse, fc)
 
 """
 SLAM
@@ -230,7 +216,9 @@ def build_motion_system(accel, accel_cov, dt):
     return A, b
 
 
-def build_phase_system(phase_error, sample_dir, sample_weights, phase_var):
+def build_phase_system(phase_error, sample_dir, sample_weights, phase_var, fc):
+
+    K = 2 * np.pi * fc / C
 
     N_poses, N_samples = phase_error.shape
 
@@ -252,7 +240,8 @@ def build_phase_system(phase_error, sample_dir, sample_weights, phase_var):
 def build_linear_system(state,
                         pulses, map_sample_coords, map_samples, phase_var,
                         accel, accel_cov, dt,
-                        prior, prior_cov):
+                        prior, prior_cov,
+                        fc):
     # Dimensions
     N_poses = state.shape[0]
     N_samples = map_sample_coords.shape[0]
@@ -270,7 +259,7 @@ def build_linear_system(state,
 
     pulses = (1 - k_a) * pulses[row_indices, k_i] + k_a * pulses[row_indices, k_i_plus_1]
 
-    # update = pulses * np.exp(w * sample_rt_t)  # N_poses x N_samples
+    w = 2 * np.pi * fc
     update = pulses * np.exp(1j * w * sample_rt_t)
 
     sample_phases = np.angle(map_samples)
@@ -280,32 +269,39 @@ def build_linear_system(state,
     phase_error = wrap2pi(est_phase - sample_phases)
 
     # Measurement Jacobian
-    A = np.zeros((4 + N_poses * 2 + N_samples * N_poses, N_poses * 4))
-    # A = np.zeros((N_poses * 2 + N_samples * N_poses, N_poses * 4))
+    # A = np.zeros((4 + N_poses * 2 + N_samples * N_poses, N_poses * 4))
+    A = np.zeros((N_poses * 2 + N_samples * N_poses, N_poses * 4))
 
-    b = np.empty((4 + N_poses * 2 + N_samples * N_poses))
-    # b = np.empty((N_poses * 2 + N_samples * N_poses))
+    # b = np.empty((4 + N_poses * 2 + N_samples * N_poses))
+    b = np.empty((N_poses * 2 + N_samples * N_poses))
 
-    A[:4, :4], b[:4] = build_prior_system(state[0], prior, prior_cov)
+    # A[:4, :4], b[:4] = build_prior_system(state[0], prior, prior_cov)
 
-    A[4:N_poses*2+4, :], b[4:N_poses*2+4] = build_motion_system(accel, accel_cov, dt)
-    # A[:N_poses*2, :], b[:N_poses*2] = get_motion_whitened_jacobian(accel, accel_cov, dt)
+    # A[4:N_poses*2+4, :], b[4:N_poses*2+4] = build_motion_system(accel, accel_cov, dt)
+    A[:N_poses*2, :], b[:N_poses*2] = build_motion_system(accel, accel_cov, dt)
 
     A[-N_poses*N_samples:, :], b[-N_poses*N_samples:] = build_phase_system(phase_error,
                                                                            sample_dir,
                                                                            sample_weights,
-                                                                           phase_var)
+                                                                           phase_var,
+                                                                           fc)
 
     return A, b
 
 
 def plot_phase_error(sample_coords, samples,
-                     offset_grid, pulses, gt_poses, pose_history=None):
+                     n_lambda, pulses, gt_poses, fc, pose_history=None):
 
     sample_weights = np.abs(samples)
     sample_phases = np.angle(samples)
 
     N_poses = len(gt_poses)
+
+    l = C / fc
+    xx = np.linspace(0, 2 * n_lambda * l, int(2 * n_lambda * 8)) - n_lambda * l
+    yy = np.linspace(0, 2 * n_lambda * l, int(2 * n_lambda * 8)) - n_lambda * l
+    xx, yy = np.meshgrid(np.flip(yy), xx, indexing='ij')
+    offset_grid = np.stack((xx, yy), axis=-1)
 
     fig, axes = plt.subplots(2, int(np.ceil(N_poses / 2)))
     axes = axes.reshape(-1)
@@ -318,6 +314,7 @@ def plot_phase_error(sample_coords, samples,
         k_a = k - k_i  # Fractional parts
         k_i_plus_1 = np.clip(k_i + 1, 0, pulses.shape[1] - 1)  # Upper bounds (clipped)
         interp_pulse = (1 - k_a) * pulses[i, k_i] + k_a * pulses[i, k_i_plus_1]
+        w = 2 * np.pi * fc
         update = interp_pulse * np.exp(1.0j * w * sample_rt_t)
         est_phase = np.angle(update)
         avg_phase_error = np.sum(
@@ -356,11 +353,27 @@ def propagate_state(state, accel, dt):
 if __name__ == "__main__":
     dt = 0.05
 
+    n_levels = 1
+    chirp_fc_max = 75e3
+    chirp_bw_max = 50e3
+    chirp_duration_max = 1e-3
+
+    # factors = 1 / np.array([4, 2.82, 2, 1.41, 1])
+    factors = np.array([1])
+
+    fc = factors * chirp_fc_max
+    chirp_bw = factors * chirp_bw_max
+    chirp_duration = (1 / factors) * chirp_duration_max
+
+    chirp_K = chirp_bw / chirp_duration
+    K = 2 * np.pi * fc / C
+    w = 2 * np.pi * fc
+
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
             SE3.Trans(0.0, 0.0, 0.0),
-            SE3.Trans(1.0, 0.0, 0.0),
-            SE3.Trans(0.0, 1.0, 0.0),
+            SE3.Trans(2.0, 0.0, 0.0),
+            # SE3.Trans(0.0, 1.0, 0.0),
         ],
         max_velocity=0.1,
         acceleration=0.1,
@@ -369,7 +382,7 @@ if __name__ == "__main__":
 
     print(f"Trajectory length: {len(trajectory.poses)}")
 
-    imu_accel_white_sigma = 1e-4
+    imu_accel_white_sigma = 1e-5
     imu_accel_walk_sigma = 1e-4
     imu = IMU(
         acceleration_white_sigma=imu_accel_white_sigma,
@@ -383,7 +396,13 @@ if __name__ == "__main__":
     odom_clip_val = 0.0035
 
     target_points = make_forest_targets()
-    grid_pos, map = initialize_map()
+
+    map = []
+    grid_pos = None
+    for i in range(n_levels):
+        grid_pos, current_map = initialize_map()
+        map.append(current_map)
+    map = np.array(map)
 
     slam_start_pose_idx = 80
     lag = 8
@@ -398,24 +417,22 @@ if __name__ == "__main__":
     # IMU acceleration covariance
     imu_accel_cov = np.eye(2) * imu_accel_white_sigma ** 2
 
-    build_map_from_traj(map, grid_pos, gt_pose[:slam_start_pose_idx], target_points)
+    print("Building initial maps...", end='')
+    for i in range(n_levels):
+        build_map_from_traj(map[i], grid_pos, gt_pose[:slam_start_pose_idx], target_points,
+                            fc[i], chirp_K[i], chirp_duration[i])
+    print(" done")
 
-    grid_extent = [0, grid_width, 0, grid_height]
-    plt.subplot(1, 2, 1)
-    plt.imshow(np.abs(map), extent=grid_extent)
-    plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
-    plt.subplot(1, 2, 2)
-    plt.imshow(np.angle(map), extent=grid_extent)
-    plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
-    plt.suptitle("Update")
-    plt.show()
-
-    # Offset grid for error plotting
-    l = C / chirp_fc
-    err_x = np.linspace(0, 2 * l, 20) - l
-    err_y = np.linspace(0, 2 * l, 20) - l
-    err_x, err_y = np.meshgrid(np.flip(err_y), err_x, indexing='ij')
-    err_offset = np.stack((err_x, err_y), axis=-1)
+    for i in range(n_levels):
+        grid_extent = [0, grid_width, 0, grid_height]
+        plt.subplot(1, 2, 1)
+        plt.imshow(np.abs(map[i]), extent=grid_extent)
+        plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+        plt.subplot(1, 2, 2)
+        plt.imshow(np.angle(map[i]), extent=grid_extent)
+        plt.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
+        plt.suptitle("Update")
+        plt.show()
 
     prior_cov = np.eye(4) * 0.002 ** 2
     # noise = np.random.multivariate_normal(np.zeros((2,)), prior_cov)
@@ -430,10 +447,12 @@ if __name__ == "__main__":
         state[i, 2:] = gt_vel[slam_start_pose_idx - lag + 1 + i]
 
     # Prepare pulses
-    pulses = np.empty((lag, signal_t.shape[0]), dtype=np.complex128)
-    for i in range(lag):
-        signal = get_signal(gt_pose[slam_start_pose_idx - lag + 1 + i], signal_t, target_points)
-        pulses[i] = pulse_compress(signal, signal_t)
+    pulses = np.empty((n_levels, lag, signal_t.shape[0]), dtype=np.complex128)
+    for level_i in range(n_levels):
+        for pose_i in range(lag):
+            signal = get_signal(gt_pose[slam_start_pose_idx - lag + 1 + pose_i], signal_t, target_points,
+                                fc[level_i], chirp_K[level_i], chirp_duration[level_i])
+            pulses[level_i, pose_i] = pulse_compress(signal, signal_t, chirp_K[level_i], chirp_duration[level_i])
 
     computed_trajectory = np.zeros((gt_pose.shape[0], 4))
     computed_trajectory[:slam_start_pose_idx] = (
@@ -448,15 +467,15 @@ if __name__ == "__main__":
 
     # SLAMMING
     for last_pose_i in range(slam_start_pose_idx, gt_pose.shape[0] - 1):
+
         first_pose_i = last_pose_i - lag + 1
 
         current_gt_poses = gt_pose[first_pose_i:last_pose_i + 1]  # for evaluation & sim only
         current_dr_poses = dr_pose[first_pose_i:last_pose_i + 1]  # for evaluation & sim only
 
         # Sample map
-        sample_idx = importance_sample(np.abs(map), 128)
+        sample_idx = importance_sample(np.abs(map[-1]), 256)
         sample_coords = grid_pos[sample_idx[:, 1], sample_idx[:, 0]]
-        samples = map[sample_idx[:, 1], sample_idx[:, 0]]
 
         print()
         print(f"--- POSES {first_pose_i} - {last_pose_i} ---")
@@ -467,28 +486,36 @@ if __name__ == "__main__":
         n_iterations = 10
         state_optimization_history = np.empty((n_iterations + 1,) + state.shape)
         state_optimization_history[0] = state
-        for i in range(n_iterations):
-            A, b = build_linear_system(state,
-                                       pulses,
-                                       sample_coords, samples,
-                                       1e-12,
-                                             imu_accel_world[first_pose_i:last_pose_i+1], imu_accel_cov, dt,
-                                       prior, prior_cov)
+        for level_i in range(n_levels):
+            samples = map[level_i, sample_idx[:, 1], sample_idx[:, 0]]
 
-            delta = np.linalg.solve(A.T @ A, A.T @ b)
+            for i in range(n_iterations):
+                A, b = build_linear_system(state,
+                                           pulses[level_i],
+                                           sample_coords, samples,
+                                           1e-12,
+                                                 imu_accel_world[first_pose_i:last_pose_i+1], imu_accel_cov, dt,
+                                           prior, prior_cov,
+                                           fc[level_i])
 
-            delta = delta.reshape((lag, 4))
-            state += delta
-            state_optimization_history[i + 1] = state
+                delta = np.linalg.solve(A.T @ A, A.T @ b)
 
-        print(f'Position error after opt: {np.linalg.norm(current_gt_poses - state[:, :2], axis=-1)}')
+                delta = delta.reshape((lag, 4))
+                state += delta
+                state_optimization_history[i + 1] = state
+
+            # plot_phase_error(sample_coords, samples, 1.5, pulses[level_i], current_gt_poses, fc[level_i],
+            #                  pose_history=state_optimization_history[..., :2])
+
+        pos_err = np.linalg.norm(current_gt_poses - state[:, :2], axis=-1)
+        print(f'Position error after opt: {pos_err}')
         print(f'Dead-reckoned position error: {np.linalg.norm(current_gt_poses - current_dr_poses, axis=-1)}')
 
-        # plot_phase_error(sample_coords, samples, err_offset, pulses, current_gt_poses,
-        #                  pose_history=state_optimization_history[..., :2])
 
-        # Update map
-        update_map(map, grid_pos, state[0, :2], pulses[0], visualize=False)
+        # Update all maps using the most accurate pose estimate available
+        for i in range(n_levels):
+            update_map(map, grid_pos, state[0, :2], pulses[i, 0], fc[i], visualize=False)
+
         computed_trajectory[last_pose_i-lag+1] = state[0]
 
         # Marginalize out first pose
@@ -500,12 +527,17 @@ if __name__ == "__main__":
         state[:-1] = state[1:]
         state[-1] = next_state
 
+        # Termination
+        if np.any(pos_err[0] > 0.01):
+            break
+
         # Compute next pulse
         # SIMULATION START
         next_gt_pose = gt_pose[last_pose_i + 1]
-        signal = get_signal(next_gt_pose, signal_t, target_points)
-        pulses[:-1] = pulses[1:]
-        pulses[-1] = pulse_compress(signal, signal_t)
+        for i in range(n_levels):
+            signal = get_signal(next_gt_pose, signal_t, target_points, fc[i], chirp_K[i], chirp_duration[i])
+            pulses[i, :-1] = pulses[i, 1:]
+            pulses[i, -1] = pulse_compress(signal, signal_t, chirp_K[i], chirp_duration[i])
         # SIMULATION END
 
 
