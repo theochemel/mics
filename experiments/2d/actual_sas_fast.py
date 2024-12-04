@@ -23,15 +23,15 @@ max_rt_t = (2 * max_range) / C
 
 signal_t = Ts * np.arange(int(max_rt_t / Ts))
 
-target_points_x = np.linspace(1, 9, 9)
-target_points_y = np.linspace(1, 9, 9)
+target_points_x = np.linspace(0, 10, 10)
+target_points_y = np.linspace(0, 10, 10)
 target_points_y, target_points_x = np.meshgrid(target_points_y, target_points_x, indexing="ij")
 target_points_y = target_points_y.flatten()
 target_points_x = target_points_x.flatten()
 target_points = np.stack((target_points_x, target_points_y), axis=-1)
-target_points += np.random.normal(loc=0, scale=5e-3, size=target_points.shape)
+target_points += np.random.normal(loc=0, scale=1e0, size=target_points.shape)
 
-gt_traj_x = 1e-2 * np.arange(100)
+gt_traj_x = 1e-2 * np.arange(100) + 5
 gt_traj_y = np.zeros_like(gt_traj_x)
 gt_traj = np.stack((gt_traj_x, gt_traj_y), axis=-1)
 
@@ -187,8 +187,8 @@ sample_px = importance_sample(np.abs(base_map), n_sample)
 sample_pos = grid_pos[sample_px[:, 1], sample_px[:, 0]]
 sample_weight = np.abs(base_map)[sample_px[:, 1], sample_px[:, 0]]
 
-offset_x = np.linspace(-5e-3, 5e-3, 10)
-offset_y = np.linspace(-5e-3, 5e-3, 10)
+offset_x = np.linspace(-5e-2, 5e-2, 25)
+offset_y = np.linspace(-5e-2, 5e-2, 25)
 
 offset_x, offset_y = np.meshgrid(offset_x, offset_y)
 
