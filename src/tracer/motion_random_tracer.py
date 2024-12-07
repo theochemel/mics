@@ -5,6 +5,7 @@ from typing import Tuple
 import matplotlib.pyplot as plt
 
 import numpy as np
+import torch
 from tqdm import tqdm
 
 from tracer.geometry import *
@@ -101,9 +102,13 @@ class MotionTracer:
                         delays,
                         doppler_coeffs,
                         T_tx: float,
-                        T_rx: [float | None] = None) -> np.ndarray:
+                        T_rx: [float | None] = None,
+                        device=None) -> np.ndarray:
         # transforms: [sources, sinks, segments*paths, 3]
         # wave: [sources, n_samples]
+
+        if device is None:
+            device = torch.device('cuda')
 
         n_sources = len(self._scene.sources)
         n_sinks = len(self._scene.sinks)
@@ -117,20 +122,22 @@ class MotionTracer:
         # Allocate the result array
         sources_n_samples = wave.shape[1]
         sinks_n_samples = int((max_delay + sources_n_samples * T_tx + 1e-3) // T_rx)
-        sinks_wave = np.zeros((n_sinks, sinks_n_samples), dtype=np.float64)
+        sinks_wave = torch.zeros((n_sinks, sinks_n_samples), dtype=np.float64, device=device)
 
-        t_tx = np.arange(sources_n_samples) * T_tx
+        t_tx = torch.arange(sources_n_samples, dtype=torch.float32, device=device) * T_tx
 
         # Multiply and add
         for source in range(n_sources):
-            path_attenuations = attenuations[source]
-            path_delays = delays[source]
+            path_attenuations = torch.tensor(attenuations[source], dtype=torch.float32, device=device)
+            path_delays = torch.tensor(delays[source], dtype=torch.float32, device=device)
 
             for sink in range(n_sinks):
                 sink_attenuations = path_attenuations[:, sink]
                 sink_delays = path_delays[:, sink]
 
-                t_rx = np.repeat(np.arange(0, t_tx[-1], T_rx)[np.newaxis], repeats=len(sink_delays), axis=0) + (sink_delays % T_rx)[:, np.newaxis]
+                t_rx = np.repeat(
+                    np.arange(0, t_tx[-1], T_rx)[np.newaxis], repeats=len(sink_delays), axis=0
+                ) + (sink_delays % T_rx)[:, np.newaxis]
                 start_idx = np.floor(sink_delays // T_rx).astype(int)
 
                 sink_signal = np.interp(t_rx, t_tx, wave[source])
