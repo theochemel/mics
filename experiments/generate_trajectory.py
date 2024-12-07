@@ -59,7 +59,7 @@ def generate_circle_coordinates(center, target, radius, velocity, duration, samp
 # Example usage
 target_point = (0.0, 0.0, 0.0)
 center_point = (0.0, 0.0, 0.0)  # Center of the circle at (x, y, z)
-radius = 10.0  # Radius of the circle in meters
+radius = 2.0  # Radius of the circle in meters
 velocity = 0.1  # Linear velocity in meters per second
 # duration = 2*np.pi*radius / velocity  # Duration of the movement in seconds
 duration = 500
