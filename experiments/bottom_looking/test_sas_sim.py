@@ -37,9 +37,9 @@ def main():
 
         pose = traj.poses[pose_i]
 
-        current_array_positions = (array.positions + pose.t)[0][np.newaxis, :]
+        current_array_positions = (array.positions + pose.t)
 
-        raw_signals = rx_pattern[i][0][np.newaxis, :]
+        raw_signals = rx_pattern[i]
         signal_t = config.Ts * np.arange(raw_signals.shape[-1]) - config.chirp_duration / 2
 
         signals = demod_signal(signal_t, raw_signals, config)
