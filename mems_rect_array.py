@@ -1,6 +1,7 @@
 import numpy as np
 from math import pi, cos, sin, tan
 import matplotlib.pyplot as plt
+import matplotlib
 from math import sqrt
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -171,8 +172,8 @@ def plot_response_2d_xy(wavelength, fov, steering_wavelength, steering_phi, stee
     z = 1
     extent = z * tan(fov / 2)
 
-    X = np.linspace(-extent, extent, 100)
-    Y = np.flip(np.linspace(-extent, extent, 100))
+    X = np.linspace(-extent, extent, 500)
+    Y = np.flip(np.linspace(-extent, extent, 500))
     X, Y = np.meshgrid(X, Y)
     Z = np.full_like(X, fill_value=z)
 
@@ -184,11 +185,57 @@ def plot_response_2d_xy(wavelength, fov, steering_wavelength, steering_phi, stee
 
     Rdb = 20 * np.log10(R)
 
-    plt.imshow(Rdb, vmax=0, vmin=-80)
-    plt.colorbar()
-    plt.title(f"Array Response (dB), FOV = {np.rad2deg(fov)} deg")
-    plt.show()
+    fig, ax = plt.subplots(figsize=(8, 8))
 
+    colors = ax.imshow(Rdb, vmax=0, vmin=-80, extent=[-1, 1, -1, 1], cmap="inferno")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_yticklabels([])
+    ax.set_xticklabels([])
+
+    # plt.gca().set_axis_off()
+    # plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+    # plt.margins(0, 0)
+    # plt.gca().xaxis.set_major_locator(plt.NullLocator())
+    # plt.gca().yaxis.set_major_locator(plt.NullLocator())
+
+    plt.colorbar(colors)
+    plt.show()
+    # plt.title(f"Array Response (dB), FOV = {np.rad2deg(fov)} deg")
+
+
+def plot_response_3d(wavelength, fov, steering_wavelength, steering_phi, steering_theta, positions):
+    a_s = direction_vector(steering_phi, steering_theta)
+    ks = wavenumber(steering_wavelength, a_s)
+
+    z = 1
+    extent = z * tan(fov / 2)
+
+    X = np.linspace(-extent, extent, 500)
+    Y = np.flip(np.linspace(-extent, extent, 500))
+    X, Y = np.meshgrid(X, Y)
+    Z = np.full_like(X, fill_value=z)
+
+    R = np.sqrt(X ** 2 + Y ** 2 + Z ** 2)
+    Theta = np.arccos(1 / R)
+    Phi = np.arctan2(Y, X)
+
+    R = response_grid(Phi, Theta, ks, wavelength, positions)
+
+    Rdb = 20 * np.log10(R)
+
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={"projection": "3d"})
+    ax.view_init(elev=0, azim=0, roll=0)
+
+    ax.plot_surface(X, Y, Rdb, cmap="inferno")
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
+    ax.set_yticklabels([])
+    ax.set_xticklabels([])
+    ax.set_zticklabels([])
+    plt.axis("off")
 
 
 def plot_response_slices(wavelength, steering_wavelength, steering_phi, steering_theta, positions):
@@ -300,6 +347,67 @@ def compute_sidelobe_level(wavelength, steering_wavelength, steering_phi, steeri
     return compute_sidelobe_level_single(R_phi), compute_sidelobe_level_single(R_theta)
 
 
+def plot_theta_slice(wavelength, steering_wavelength, steering_phi, steering_theta, positions):
+    fig, ax = plt.subplots(figsize=(6, 3))
+    
+    Theta = np.linspace(-pi / 2, pi / 2, 1000)
+
+    a_s = direction_vector(steering_phi, steering_theta)
+    ks = wavenumber(steering_wavelength, a_s)
+
+    R = response_along_theta(steering_phi, Theta, ks, wavelength, positions)
+
+    Rdb = 20 * np.log10(R)
+
+    ax.plot(Theta, Rdb, c="darkorange", linewidth=2)
+
+    ax.set_xlabel("Theta (rad)")
+    ax.set_ylabel("Amplitude (dB)")
+    ax.grid()
+    ax.legend()
+    ax.set_xlim(-pi / 2, pi / 2)
+    ax.set_ylim(-80, 10)
+
+    steering_angle_index = int(np.where(np.min(np.abs(Theta - steering_theta)) == np.abs(Theta - steering_theta))[0])
+
+    Rdb_left = Rdb[:steering_angle_index]
+    Rdb_right = Rdb[steering_angle_index + 1:]
+
+    down_three_left_index = np.where(np.min(np.abs(Rdb_left + 3)) == np.abs(Rdb_left + 3))[0]
+    down_three_right_index = steering_angle_index + 1 + \
+                             np.where(np.min(np.abs(Rdb_right + 3)) == np.abs(Rdb_right + 3))[0]
+
+    if len(down_three_left_index) > 1 or len(down_three_right_index) > 1:
+        return None
+
+    down_three_left_index = int(down_three_left_index[0])
+    down_three_right_index = int(down_three_right_index[0])
+
+    down_three_left_angle = Theta[down_three_left_index]
+    down_three_right_angle = Theta[down_three_right_index]
+
+    down_three_beamwidth = down_three_right_angle - down_three_left_angle
+
+    print(f"beamwidth: {down_three_beamwidth}")
+
+    ax.axvline(x=down_three_left_angle, c="royalblue", linestyle="dashed", linewidth=2)
+    ax.axvline(x=down_three_right_angle, c="royalblue", linestyle="dashed", linewidth=2)
+    ax.axhline(y=-3, c="royalblue", linestyle="dashed", linewidth=2)
+
+    peak_values = Rdb[1:-1][(Rdb[1:-1] > Rdb[0:-2]) & (Rdb[1:-1] > Rdb[2:])]
+
+    second_largest_peak_value = np.partition(peak_values, -2)[-2]
+
+    sidelobe_level = float(second_largest_peak_value)
+    ax.axhline(y=sidelobe_level, c="royalblue", linestyle="dashed", linewidth=2)
+
+    print(f"sidelobe: {sidelobe_level}")
+
+    fig.tight_layout()
+
+    plt.show()
+
+
 def plot_geometry(positions):
     fig, axs = plt.subplots(ncols=2, figsize=(6.4, 3.2))
 
@@ -380,20 +488,28 @@ positions = np.stack((
 
 print(positions.shape[0])
 
-plot_geometry(positions)
+# plot_geometry(positions)
 
 # plot_response_2d(l, l, 0, 0, positions)
 # plot_response_2d(l, l, 0, 0.3, positions)
 
-plot_response_2d_xy(l, pi / 2, l, 0, 0, positions)
-plot_response_2d_xy(l, pi / 2, l, 0, 0.3, positions)
-plot_response_2d_xy(l, pi / 2, l, 0, 0.6, positions)
-plot_response_2d_xy(l, pi / 2, l, pi / 4, 0, positions)
-plot_response_2d_xy(l, pi / 2, l, pi / 4, 0.3, positions)
-plot_response_2d_xy(l, pi / 2, l, pi / 4, 0.6, positions)
-plot_response_2d_xy(l, pi / 2, l, pi / 2, 0, positions)
-plot_response_2d_xy(l, pi / 2, l, pi / 2, 0.3, positions)
-plot_response_2d_xy(l, pi / 2, l, pi / 2, 0.6, positions)
+# plot_response_3d(l, pi / 2, l, 0, 0, positions)
+plot_theta_slice(l, l, 0, 0, positions)
+# plt.show()
+
+# plot_response_2d_xy(l, pi / 2, l, 0, 0, positions)
+# plt.savefig("/Users/theo/Documents/CMU/f24-independent-study/poster/img/response-2d-1.svg")
+# plot_response_2d_xy(l, pi / 2, l, 0, pi / 6, positions)
+# plt.savefig("/Users/theo/Documents/CMU/f24-independent-study/poster/img/response-2d-2.svg")
+# plot_response_2d_xy(l, pi / 2, l, pi / 4, pi / 6, positions)
+# plt.savefig("/Users/theo/Documents/CMU/f24-independent-study/poster/img/response-2d-3.svg")
+
+# plot_response_2d_xy(l, pi / 2, l, 0, 0.6, positions)
+# plot_response_2d_xy(l, pi / 2, l, pi / 4, 0.3, positions)
+# plot_response_2d_xy(l, pi / 2, l, pi / 4, 0.6, positions)
+# plot_response_2d_xy(l, pi / 2, l, pi / 2, 0, positions)
+# plot_response_2d_xy(l, pi / 2, l, pi / 2, 0.3, positions)
+# plot_response_2d_xy(l, pi / 2, l, pi / 2, 0.6, positions)
 
 # plot_response_slices(l, l, 0, 0.3, positions)
 

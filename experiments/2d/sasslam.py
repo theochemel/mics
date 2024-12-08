@@ -160,6 +160,24 @@ def update_map(map, grid_pos, position, pulse,
     # Perform linear interpolation
     interp_pulse = (1 - k_a) * pulse[k_i] + k_a * pulse[k_i_plus_1]
 
+    plt.plot(np.real(pulse))
+    plt.plot(np.imag(pulse))
+    plt.title("pulse")
+    plt.show()
+    plt.plot(np.abs(pulse))
+    plt.title("pulse amp")
+    plt.show()
+
+    mod_pulse = pulse * np.exp(2.0j * np.pi * chirp_fc * signal_t)
+    plt.plot(np.real(mod_pulse))
+    plt.plot(np.imag(mod_pulse))
+    plt.title("modulated pulse")
+    plt.show()
+
+    plt.plot(np.abs(mod_pulse))
+    plt.title("modulated pulse amp")
+    plt.show()
+
     update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * grid_range))
 
     map += update
@@ -410,7 +428,8 @@ if __name__ == "__main__":
 
     odom_clip_val = 0.0035
 
-    target_points = make_forest_targets()
+    # target_points = make_forest_targets()
+    target_points = np.array([5.0, 5.0])
     grid_pos, map = initialize_map()
 
     slam_start_pose_idx = 20
