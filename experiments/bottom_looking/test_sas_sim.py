@@ -70,7 +70,7 @@ def main():
 
         pulses = pulse_compress_signals(signals, config)
 
-        updates = get_sas_updates(grid_points, current_array_positions, source, signal_t, pulses, config)
+        updates = get_sas_updates(grid_points, current_array_positions, current_source_position, signal_t, pulses, config)
 
         updates = updates.reshape((updates.shape[0], grid_x.shape[0], grid_x.shape[1], grid_x.shape[2]))
 
