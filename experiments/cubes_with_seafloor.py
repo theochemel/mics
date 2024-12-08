@@ -36,7 +36,7 @@ if __name__ == "__main__":
         )
     ]
 
-    arr = RectangularArray(6, 6, 0.0075, UniformContinuousAngularDistribution(
+    arr = RectangularArray(6, 6, 1e-2, UniformContinuousAngularDistribution(
         min_az=-pi, max_az=pi, min_el=0, max_el=pi
     ))
 
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     T_tx = T_rx = 1e-6 # 1 MHz
     code = Chirp(f_hi=100e3, f_lo=50e3, T_sample=T_tx, T_chirp=1e-3)
 
-    result = run_experiment(Path(args.o),
+    result = run_experiment(Path.cwd() / Path(args.o),
                             scene,
                             trajectory,
                             code,
