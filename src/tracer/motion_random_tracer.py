@@ -3,10 +3,13 @@ from locale import normalize
 from pathlib import Path
 from typing import Tuple
 import matplotlib.pyplot as plt
-import cupy as cp
-import cupyx
 
 import numpy as np
+try:
+    import cupy as cp
+except ModuleNotFoundError:
+    import numpy as cp
+
 from tqdm import tqdm
 
 from tracer.geometry import *
