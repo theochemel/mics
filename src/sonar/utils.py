@@ -129,16 +129,18 @@ def cosine_envelope(t: np.array, center: float, width: float):
 
 class Chirp:
 
-    def __init__(self, f_hi: float, f_lo: float, T_sample, T_chirp):
-        self._f_hi = f_hi
-        self._f_lo = f_lo
+    def __init__(self, fc: float, bw: float, T_sample, T_chirp):
+        self._fc = fc
+        self._bw = bw
+        self._K = bw / T_chirp
         self._T_sample = T_sample
         self._T_chirp = T_chirp
 
-        t = T_sample * np.arange(T_chirp / T_sample)
+        t = T_sample * np.arange(T_chirp / T_sample) - T_chirp / 2
         self._baseband_t = t
-        envelope = cosine_envelope(t, T_chirp / 2, T_chirp)
-        self._baseband = envelope * np.sin(2 * np.pi * (f_hi - f_lo) / (2 * T_chirp) * t ** 2 + f_lo * t)
+        envelope = cosine_envelope(t, 0, T_chirp)
+
+        self._baseband = envelope * np.cos(2.0 * np.pi * self._fc * t + 1.0 * np.pi * self._K * t ** 2)
 
 
     @property
@@ -147,7 +149,7 @@ class Chirp:
 
     @property
     def carrier(self):
-        return self._f_hi
+        return self.fc
 
 
 if __name__ == "__main__":

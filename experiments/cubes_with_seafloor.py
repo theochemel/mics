@@ -51,31 +51,38 @@ if __name__ == "__main__":
     bottom_xx = np.arange(bottom_nx) * bottom_tile_size - (bottom_nx * bottom_tile_size / 2)
     bottom_yy = np.arange(botton_ny) * bottom_tile_size - (botton_ny * bottom_tile_size / 2)
 
-    surfaces = []
+    surfaces = [
+        Surface(
+            id="cube",
+            pose=SE3.Trans(0, 0, 0),
+            material=sand_material,
+            mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
+        )
+    ]
 
-    for x in bottom_xx:
-        for y in bottom_yy:
-            surfaces.append(Surface(
-                id=f'bottom-{x}-{y}',
-                pose=SE3.Rt(SO3(), np.array([x, y, -3.0])),
-                material=sand_material,
-                mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply")
-            ))
-
-    if args.cubes:
-        cube_xx, cube_yy = bottom_xx, bottom_yy
-        cube_coords = np.stack(np.meshgrid(cube_xx, cube_yy), axis=2)
-
-        cube_coords += np.random.normal(loc=0, scale=0.6, size=cube_coords.shape)
-        cube_coords = cube_coords.reshape(-1, 2)
-
-        for x, y in cube_coords:
-            surfaces.append(Surface(
-                id=f'cube-{x}-{y}',
-                pose=SE3.Rt(SO3(), np.array([x, y, -1.5])),
-                material=sand_material,
-                mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply")
-            ))
+    # for x in bottom_xx:
+    #     for y in bottom_yy:
+    #         surfaces.append(Surface(
+    #             id=f'bottom-{x}-{y}',
+    #             pose=SE3.Rt(SO3(), np.array([x, y, -3.0])),
+    #             material=sand_material,
+    #             mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply")
+    #         ))
+    #
+    # if args.cubes:
+    #     cube_xx, cube_yy = bottom_xx, bottom_yy
+    #     cube_coords = np.stack(np.meshgrid(cube_xx, cube_yy), axis=2)
+    #
+    #     cube_coords += np.random.normal(loc=0, scale=0.6, size=cube_coords.shape)
+    #     cube_coords = cube_coords.reshape(-1, 2)
+    #
+    #     for x, y in cube_coords:
+    #         surfaces.append(Surface(
+    #             id=f'cube-{x}-{y}',
+    #             pose=SE3.Rt(SO3(), np.array([x, y, -1.5])),
+    #             material=sand_material,
+    #             mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply")
+    #         ))
 
     scene = Scene(
         sources=sources,
@@ -92,14 +99,14 @@ if __name__ == "__main__":
             # SE3.Trans(-0.5, -0.5, 0)
         ],
         max_velocity=0.1,
-        acceleration=0.1,
+        acceleration=100,
         dt=0.05
     )
 
     print(f"Trajectory length: {len(trajectory.poses)}")
 
     T_tx = T_rx = 1e-6 # 1 MHz
-    code = Chirp(f_hi=100e3, f_lo=50e3, T_sample=T_tx, T_chirp=1e-3)
+    code = Chirp(fc=50e3, bw=50e3, T_sample=T_tx, T_chirp=1e-3)
 
     result = run_experiment(Path.cwd() / Path(args.o),
                             scene,

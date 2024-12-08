@@ -15,6 +15,7 @@ def cosine_envelope(t: np.array, config: Config):
 
 
 def chirp(t: np.array, config: Config):
+    print(config.chirp_K)
     return cosine_envelope(t, config) * np.exp(2.0j * np.pi * config.chirp_fc * t + 1.0j * np.pi * config.chirp_K * t ** 2)
 
 

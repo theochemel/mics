@@ -6,7 +6,7 @@ import numpy as np
 class Config:
     c: float = 1500
 
-    chirp_fc: float = 75e3
+    chirp_fc: float = 50e3
     chirp_bw: float = 50e3
     chirp_duration: float = 1e-3
 
@@ -34,14 +34,16 @@ class Config:
     def max_rt_t(self) -> float:
         return (2 * self.max_range) / self.c
 
-    grid_size_xy = 128
-    grid_size_z = 10
+    grid_size_xy = 512
+    grid_size_z = 1
 
     grid_resolution_xy = 1e-2
     grid_resolution_z = 1e-2
 
-    grid_min_z = -3
+    grid_min_z = 0
 
     @property
     def spatial_f(self) -> float:
         return self.c / (2 * self.grid_resolution_xy)
+
+    fov: float = np.deg2rad(60)

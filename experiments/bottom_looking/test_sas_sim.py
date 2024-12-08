@@ -1,6 +1,7 @@
 import pickle
 
 import numpy as np
+import scipy as sp
 import matplotlib.pyplot as plt
 import matplotlib.animation
 from tqdm import tqdm
@@ -8,7 +9,7 @@ from tqdm import tqdm
 from experiments.bottom_looking.signals import pulse_compress_signals
 from grid import get_grid_points, get_grid_xy_extent
 from sas import get_sas_updates
-from signals import demod_signal
+from signals import demod_signal, chirp
 from config import Config
 from visualize import plot_map_slices_animated
 
@@ -16,12 +17,12 @@ from visualize import plot_map_slices_animated
 
 def main():
     config = Config()
-    config.grid_min_z = -4
 
     with open("no-cubes.pkl", "rb") as f:
         exp = pickle.load(f)
 
     traj = exp["trajectory"]
+    tx_pattern = exp["tx_pattern"]
     rx_pattern = exp["rx_pattern"]
     array = exp["array"]
 
@@ -36,22 +37,51 @@ def main():
 
         pose = traj.poses[pose_i]
 
-        raw_signals = rx_pattern[i]
-        signal_t = config.Ts * np.arange(raw_signals.shape[-1])
+        current_array_positions = (array.positions + pose.t)[0][np.newaxis, :]
+
+        raw_signals = rx_pattern[i][0][np.newaxis, :]
+        signal_t = config.Ts * np.arange(raw_signals.shape[-1]) - config.chirp_duration / 2
 
         signals = demod_signal(signal_t, raw_signals, config)
 
+        # tx_pattern_t = config.Ts * np.arange(len(tx_pattern.baseband))
+
+        # plt.plot(tx_pattern_t, tx_pattern.baseband, label="real")
+        # plt.plot(tx_pattern_t, np.real(sp.signal.hilbert(tx_pattern.baseband)), label="hilbert real")
+        # plt.plot(tx_pattern_t, np.imag(sp.signal.hilbert(tx_pattern.baseband)), label="hilbert imag")
+        # plt.plot(tx_pattern_t, np.real(chirp(tx_pattern_t - config.chirp_duration / 2, config)), label="analytic real")
+        # plt.plot(tx_pattern_t, np.imag(chirp(tx_pattern_t - config.chirp_duration / 2, config)), label="analytic imag")
+        # plt.legend()
+        # plt.show()
+
+        # demod_tx = demod_signal(config.Ts * np.arange(len(tx_pattern.baseband)), tx_pattern.baseband, config)
+
+        # plt.plot(np.real(demod_tx[0]))
+        # plt.plot(np.imag(demod_tx[0]))
+        # plt.show()
+
+        plt.plot(config.c * signal_t / 2, np.real(signals[0]))
+        plt.plot(config.c * signal_t / 2, np.imag(signals[0]))
+        plt.show()
+
         pulses = pulse_compress_signals(signals, config)
 
-        updates = get_sas_updates(grid_points, array.positions + pose.t, signal_t, pulses, config)
+        plt.plot(config.c * signal_t / 2, np.real(pulses[0]))
+        plt.plot(config.c * signal_t / 2, np.imag(pulses[0]))
+        plt.show()
+
+        updates = get_sas_updates(grid_points, current_array_positions, signal_t, pulses, config)
         updates = updates.reshape((updates.shape[0], grid_x.shape[0], grid_x.shape[1], grid_x.shape[2]))
 
         sum_updates = np.sum(updates, axis=0)
 
         map += sum_updates
 
+        plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
+    # plt.scatter(current_array_positions[:, 0], current_array_positions[:, 1])
+        plt.show()
 
-    plot_map_slices_animated(map, grid_xy_extent)
+    # plot_map_slices_animated(map, grid_xy_extent)
 
 
 if __name__ == "__main__":

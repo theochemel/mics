@@ -12,8 +12,8 @@ def plot_map_slices_animated(map, extent):
     fig, ax = plt.subplots()
 
     img_display = ax.imshow(map_abs[:, :, 0], extent=extent, vmin=vmin, vmax=vmax)
-    ax.set_ylabel("X (m)")
-    ax.set_xlabel("Y (m)")
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
 
 
     def animate(frame_i):
