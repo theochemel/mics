@@ -18,13 +18,15 @@ from visualize import plot_map_slices_animated
 def main():
     config = Config()
 
-    with open("no-cubes.pkl", "rb") as f:
+    with open("cubes-only.pkl", "rb") as f:
         exp = pickle.load(f)
 
     traj = exp["trajectory"]
     tx_pattern = exp["tx_pattern"]
     rx_pattern = exp["rx_pattern"]
     array = exp["array"]
+
+    source = np.array([0,0,0])
 
     grid_x, grid_y, grid_z = get_grid_points(config)
     grid_xy_extent = get_grid_xy_extent(config)
@@ -37,9 +39,10 @@ def main():
 
         pose = traj.poses[pose_i]
 
-        current_array_positions = (array.positions + pose.t)
+        current_array_positions = (array.positions + pose.t)#[4:5]
+        current_source_position = source + pose.t
 
-        raw_signals = rx_pattern[i]
+        raw_signals = rx_pattern[i]#[4:5]
         signal_t = config.Ts * np.arange(raw_signals.shape[-1]) - config.chirp_duration / 2
 
         signals = demod_signal(signal_t, raw_signals, config)
@@ -55,11 +58,6 @@ def main():
         # plt.show()
 
         # demod_tx = demod_signal(config.Ts * np.arange(len(tx_pattern.baseband)), tx_pattern.baseband, config)
-        #
-        # plt.plot(np.real(demod_tx[0]))
-        # plt.plot(np.imag(demod_tx[0]))
-        # plt.show()
-        #
         # pulse_tx = pulse_compress_signals(demod_tx, config)
         #
         # plt.plot(np.real(pulse_tx[0]))
@@ -72,22 +70,21 @@ def main():
 
         pulses = pulse_compress_signals(signals, config)
 
-        # plt.plot(config.c * signal_t / 2, np.real(pulses[0]))
-        # plt.plot(config.c * signal_t / 2, np.imag(pulses[0]))
-        # plt.show()
+        updates = get_sas_updates(grid_points, current_array_positions, current_source_position, signal_t, pulses, config)
 
-        updates = get_sas_updates(grid_points, current_array_positions, signal_t, pulses, config)
         updates = updates.reshape((updates.shape[0], grid_x.shape[0], grid_x.shape[1], grid_x.shape[2]))
 
         sum_updates = np.sum(updates, axis=0)
 
         map += sum_updates
 
-        plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
-    # plt.scatter(current_array_positions[:, 0], current_array_positions[:, 1])
-        plt.show()
 
-    # plot_map_slices_animated(map, grid_xy_extent)
+    plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
+    plt.imshow(np.log(np.abs(map[:, :, 0])), cmap='viridis', aspect='equal')
+    # plt.scatter(current_array_positions[:, 0], current_array_positions[:, 1])
+    plt.show()
+
+    plot_map_slices_animated(map, grid_xy_extent)
 
 
 if __name__ == "__main__":

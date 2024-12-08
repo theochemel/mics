@@ -36,7 +36,7 @@ if __name__ == "__main__":
         )
     ]
 
-    arr = RectangularArray(6, 6, 1e-2, UniformContinuousAngularDistribution(
+    arr = RectangularArray(3, 3, 1e-2, UniformContinuousAngularDistribution(
         min_az=-pi, max_az=pi, min_el=0, max_el=pi
     ))
 
@@ -69,20 +69,20 @@ if __name__ == "__main__":
     #             mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply")
     #         ))
     #
-    # if args.cubes:
-    #     cube_xx, cube_yy = bottom_xx, bottom_yy
-    #     cube_coords = np.stack(np.meshgrid(cube_xx, cube_yy), axis=2)
-    #
-    #     cube_coords += np.random.normal(loc=0, scale=0.6, size=cube_coords.shape)
-    #     cube_coords = cube_coords.reshape(-1, 2)
-    #
-    #     for x, y in cube_coords:
-    #         surfaces.append(Surface(
-    #             id=f'cube-{x}-{y}',
-    #             pose=SE3.Rt(SO3(), np.array([x, y, -1.5])),
-    #             material=sand_material,
-    #             mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply")
-    #         ))
+    if args.cubes:
+        cube_xx, cube_yy = bottom_xx, bottom_yy
+        cube_coords = np.stack(np.meshgrid(cube_xx, cube_yy), axis=2)
+
+        cube_coords += np.random.normal(loc=0, scale=0.6, size=cube_coords.shape)
+        cube_coords = cube_coords.reshape(-1, 2)
+
+        for x, y in cube_coords:
+            surfaces.append(Surface(
+                id=f'cube-{x}-{y}',
+                pose=SE3.Rt(SO3(), np.array([x, y, 0])),
+                material=sand_material,
+                mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply")
+            ))
 
     scene = Scene(
         sources=sources,
@@ -94,9 +94,9 @@ if __name__ == "__main__":
         keyposes=[
             SE3.Trans(-0.5, -0.5, 0),
             SE3.Trans(0.0, -0.5, 0),
-            SE3.Trans(0.5, 0.5, 0),
-            SE3.Trans(-0.5, 0.5, 0),
-            SE3.Trans(-0.5, -0.5, 0)
+            # SE3.Trans(0.5, 0.5, 0),
+            # SE3.Trans(-0.5, 0.5, 0),
+            # SE3.Trans(-0.5, -0.5, 0)
         ],
         max_velocity=0.1,
         acceleration=100,
