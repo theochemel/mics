@@ -111,6 +111,20 @@ class FMBarker:
     def baseband(self) -> np.array:
         return self._baseband
 
+def cosine_envelope(t: np.array, center: float, width: float):
+    """
+
+    :param t: time
+    :param center: envelope center (peak)
+    :param width: total width of the envelope (0 - peak - 0)
+    :return: envelope values
+    """
+
+    return np.where(
+        (center - width / 2 <= t) & (t <= center + width / 2),
+        np.cos(np.pi * (t - center) / width) ** 2,
+        0
+    )
 
 
 class Chirp:
@@ -123,7 +137,8 @@ class Chirp:
 
         t = T_sample * np.arange(T_chirp / T_sample)
         self._baseband_t = t
-        self._baseband = np.sin(2 * np.pi * (f_hi - f_lo) / (2 * T_chirp) * t ** 2 + f_lo * t)
+        envelope = cosine_envelope(t, T_chirp / 2, T_chirp)
+        self._baseband = envelope * np.sin(2 * np.pi * (f_hi - f_lo) / (2 * T_chirp) * t ** 2 + f_lo * t)
 
 
     @property

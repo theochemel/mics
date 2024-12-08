@@ -1,6 +1,6 @@
 import numpy as np
 from spatialmath import SE3
-from typing import List
+from typing import List, Tuple
 
 from motion.trajectory import Trajectory
 
@@ -138,6 +138,15 @@ class LinearConstantAccelerationTrajectory(Trajectory):
     @property
     def angular_velocity_world(self) -> np.array:
         return self._angular_velocities
+
+    def __getitem__(self, value) -> Tuple[float, SE3]:
+        return self._time[value], self._poses[value]
+
+    def __len__(self) -> int:
+        return len(self._poses)
+
+    def __iter__(self):
+        return self._poses.__iter__()
 
 
 if __name__ == "__main__":

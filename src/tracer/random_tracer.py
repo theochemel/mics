@@ -353,13 +353,12 @@ class Tracer:
 
             path_attenuations, path_delays, path_doppler_coeffs = path_transforms
 
-            for sink_id in range(len(sink_velocities)):
-                    attenuations[path.source_id].extend(path_attenuations)
-                    delays[path.source_id].extend(path_delays)
-                    doppler_coeffs[path.source_id].extend(path_doppler_coeffs)
+            attenuations[path.source_id].extend(path_attenuations)
+            delays[path.source_id].extend(path_delays)
+            doppler_coeffs[path.source_id].extend(path_doppler_coeffs)
 
-        attenuations = { key: np.array(val) for key, val in attenuations.items() }
-        delays = { key: np.array(val) for key, val in delays.items() }
-        doppler_coeffs = { key: np.array(val) for key, val in doppler_coeffs.items() }
+        attenuations = { src: np.array(val) for src, val in attenuations.items() }
+        delays = { src: np.array(val) for src, val in delays.items() }
+        doppler_coeffs = { src: np.array(val) for src, val in doppler_coeffs.items() }
 
         return attenuations, delays, doppler_coeffs

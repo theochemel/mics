@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from typing import List
+from typing import List, Tuple
 from spatialmath import SE3
 
 
@@ -51,3 +51,14 @@ class Trajectory(ABC):
     def angular_velocity_world(self) -> np.array:
         pass
 
+    @abstractmethod
+    def __getitem__(self, value) -> Tuple[float, SE3]:
+        pass
+
+    @abstractmethod
+    def __len__(self) -> int:
+        pass
+
+    @abstractmethod
+    def __iter__(self):
+        pass

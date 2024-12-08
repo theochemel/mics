@@ -5,41 +5,20 @@ from typing import Tuple
 import matplotlib.pyplot as plt
 
 import numpy as np
-try:
-    import cupy as cp
-except ModuleNotFoundError:
-    import numpy as cp
 
+from motion.trajectory import Trajectory
+
+# try:
+#     import cupy as cp
+# except ModuleNotFoundError:
+#     import numpy as cp
+#
+import numpy as cp
 from tqdm import tqdm
 
 from tracer.geometry import *
 from tracer.random_tracer import Tracer
 from tracer.scene import *
-
-
-class Trajectory:
-
-    def __init__(self, trajectory_file: Path):
-        self._poses: List[Tuple[float, SE3]] = []
-
-        with open(str(trajectory_file), 'r') as f:
-            while line := f.readline():
-                vals = line.split(',')
-                vals = list(map(float, vals))
-                timestamp = vals[0]
-                pose = SE3.Rt(SO3.RPY(vals[4:7]), vals[1:4])
-                self._poses.append((timestamp, pose))
-
-        self._idx = 0
-
-    def __getitem__(self, value) -> Tuple[float, SE3]:
-        return self._poses[value]
-
-    def __len__(self) -> int:
-        return len(self._poses)
-
-    def __iter__(self):
-        return self._poses.__iter__()
 
 
 class MotionTracer:
@@ -55,11 +34,14 @@ class MotionTracer:
                          T_tx: float,
                          T_rx: [float | None] = None,
                          visualize = False) -> List[np.array]:
-        prev_timestamp, prev_pose = traj._poses[0]
+        prev_timestamp, prev_pose = traj.time[0], traj.poses[0]
 
         rx_pattern = []
 
-        for timestamp, pose in tqdm(traj._poses[1:]):
+        for idx in tqdm(range(1, len(traj.poses))):
+            pose = traj.poses[idx]
+            timestamp = traj.time[idx]
+
             transformed_scene: Scene = self._get_frame(pose)
 
             tracer = Tracer(transformed_scene)
@@ -142,7 +124,7 @@ class MotionTracer:
 
                 t_rx = cp.repeat(cp.arange(0, t_tx[-1], T_rx)[cp.newaxis], repeats=len(sink_delays), axis=0) + (sink_delays % T_rx)[:, cp.newaxis]
 
-                start_idx = cp.asnumpy(cp.floor(sink_delays // T_rx).astype(int))
+                start_idx = cp.floor(sink_delays // T_rx).astype(int)
                 sink_signal = cp.interp(t_rx, t_tx, wave[source])
 
                 attenuated_signal = sink_signal * db_to_amplitude(sink_attenuations[:, cp.newaxis])

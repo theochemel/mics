@@ -3,7 +3,8 @@ from pathlib import Path
 
 from sonar.phased_array import RectangularArray
 from sonar.utils import BarkerCode, Chirp
-from tracer.motion_random_tracer import MotionTracer, Trajectory
+from tracer.motion_random_tracer import MotionTracer
+from motion.trajectory import Trajectory
 from tracer.random_tracer import *
 
 
