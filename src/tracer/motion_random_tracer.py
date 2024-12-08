@@ -3,6 +3,8 @@ from locale import normalize
 from pathlib import Path
 from typing import Tuple
 import matplotlib.pyplot as plt
+import cupy as cp
+import cupyx
 
 import numpy as np
 from tqdm import tqdm
@@ -119,23 +121,30 @@ class MotionTracer:
         sinks_n_samples = int((max_delay + sources_n_samples * T_tx + 1e-3) // T_rx)
         sinks_wave = np.zeros((n_sinks, sinks_n_samples), dtype=np.float64)
 
-        t_tx = np.arange(sources_n_samples) * T_tx
+        t_tx = cp.arange(sources_n_samples) * T_tx
+
+        wave = cp.asarray(wave)
 
         # Multiply and add
         for source in range(n_sources):
-            path_attenuations = attenuations[source]
-            path_delays = delays[source]
+            path_attenuations = cp.asarray(attenuations[source])
+            path_delays = cp.asarray(delays[source])
+
+            n_paths, _ = path_attenuations.shape
+            path_idx = cp.arange(n_paths)
 
             for sink in range(n_sinks):
                 sink_attenuations = path_attenuations[:, sink]
                 sink_delays = path_delays[:, sink]
 
-                t_rx = np.repeat(np.arange(0, t_tx[-1], T_rx)[np.newaxis], repeats=len(sink_delays), axis=0) + (sink_delays % T_rx)[:, np.newaxis]
-                start_idx = np.floor(sink_delays // T_rx).astype(int)
+                t_rx = cp.repeat(cp.arange(0, t_tx[-1], T_rx)[cp.newaxis], repeats=len(sink_delays), axis=0) + (sink_delays % T_rx)[:, cp.newaxis]
 
-                sink_signal = np.interp(t_rx, t_tx, wave[source])
+                start_idx = cp.asnumpy(cp.floor(sink_delays // T_rx).astype(int))
+                sink_signal = cp.interp(t_rx, t_tx, wave[source])
+
+                attenuated_signal = sink_signal * db_to_amplitude(sink_attenuations[:, cp.newaxis])
 
                 for path in range(len(sink_attenuations)):
-                    sinks_wave[sink, start_idx[path]:start_idx[path] + len(sink_signal[path])] += sink_signal[path] * db_to_amplitude(sink_attenuations[path])
+                    sinks_wave[sink, start_idx[path]:start_idx[path] + len(sink_signal[path])] += attenuated_signal[path]
 
         return sinks_wave
