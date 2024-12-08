@@ -42,8 +42,4 @@ class Config:
 
     grid_min_z = 0
 
-    @property
-    def spatial_f(self) -> float:
-        return self.c / (2 * self.grid_resolution_xy)
-
     fov: float = np.deg2rad(60)

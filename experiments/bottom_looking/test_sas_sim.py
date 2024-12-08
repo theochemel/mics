@@ -55,20 +55,26 @@ def main():
         # plt.show()
 
         # demod_tx = demod_signal(config.Ts * np.arange(len(tx_pattern.baseband)), tx_pattern.baseband, config)
-
+        #
         # plt.plot(np.real(demod_tx[0]))
         # plt.plot(np.imag(demod_tx[0]))
         # plt.show()
+        #
+        # pulse_tx = pulse_compress_signals(demod_tx, config)
+        #
+        # plt.plot(np.real(pulse_tx[0]))
+        # plt.plot(np.imag(pulse_tx[0]))
+        # plt.show()
 
-        plt.plot(config.c * signal_t / 2, np.real(signals[0]))
-        plt.plot(config.c * signal_t / 2, np.imag(signals[0]))
-        plt.show()
+        # plt.plot(config.c * signal_t / 2, np.real(signals[0]))
+        # plt.plot(config.c * signal_t / 2, np.imag(signals[0]))
+        # plt.show()
 
         pulses = pulse_compress_signals(signals, config)
 
-        plt.plot(config.c * signal_t / 2, np.real(pulses[0]))
-        plt.plot(config.c * signal_t / 2, np.imag(pulses[0]))
-        plt.show()
+        # plt.plot(config.c * signal_t / 2, np.real(pulses[0]))
+        # plt.plot(config.c * signal_t / 2, np.imag(pulses[0]))
+        # plt.show()
 
         updates = get_sas_updates(grid_points, current_array_positions, signal_t, pulses, config)
         updates = updates.reshape((updates.shape[0], grid_x.shape[0], grid_x.shape[1], grid_x.shape[2]))

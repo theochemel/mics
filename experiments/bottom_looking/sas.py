@@ -52,7 +52,7 @@ def get_sas_updates(points: np.array, sinks: np.array, signal_t: np.array, signa
         updates = torch.zeros((n, s), dtype=torch.complex128)
 
         # [n, s]
-        updates[valid] = interp_pulse * torch.exp(2.0j * np.pi * config.spatial_f * rtt[valid])
+        updates[valid] = interp_pulse * torch.exp(1.0j * np.pi * config.chirp_fc * rtt[valid])
 
         # [s, n]
         updates = torch.transpose(updates, dim0=0, dim1=1)
