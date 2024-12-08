@@ -94,9 +94,9 @@ if __name__ == "__main__":
         keyposes=[
             SE3.Trans(-0.5, -0.5, 0),
             SE3.Trans(0.0, -0.5, 0),
-            # SE3.Trans(0.5, 0.5, 0),
-            # SE3.Trans(-0.5, 0.5, 0),
-            # SE3.Trans(-0.5, -0.5, 0)
+            SE3.Trans(0.5, 0.5, 0),
+            SE3.Trans(-0.5, 0.5, 0),
+            SE3.Trans(-0.5, -0.5, 0)
         ],
         max_velocity=0.1,
         acceleration=100,

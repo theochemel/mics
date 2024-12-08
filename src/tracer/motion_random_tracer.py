@@ -38,8 +38,7 @@ class MotionTracer:
 
         rx_pattern = []
 
-        # for idx in tqdm(range(1, len(traj.poses))):
-        for idx in tqdm(range(1, 50)):
+        for idx in tqdm(range(1, len(traj.poses))):
             pose = traj.poses[idx]
             timestamp = traj.time[idx]
 
