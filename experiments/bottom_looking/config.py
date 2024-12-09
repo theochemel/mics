@@ -8,7 +8,7 @@ class Config:
 
     chirp_fc: float = 50e3
     chirp_bw: float = 50e3
-    chirp_duration: float = 1e-3
+    chirp_duration: float = 2e-4
 
     @property
     def chirp_K(self) -> float:
@@ -34,10 +34,10 @@ class Config:
     def max_rt_t(self) -> float:
         return (2 * self.max_range) / self.c
 
-    grid_size_xy = 512
+    grid_size_xy = 300
     grid_size_z = 2
 
-    grid_resolution_xy = 0.5 * (1500 / 50e3)
+    grid_resolution_xy = 5e-3
     grid_resolution_z = 0.25
 
     grid_min_z = -2

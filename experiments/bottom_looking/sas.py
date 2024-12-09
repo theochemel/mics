@@ -29,46 +29,113 @@ def get_sas_updates(points: np.array,
         s = sinks.shape[0]
         d = len(signal_t)
 
-        # [n, s, 3]
-        delta_sinks = points.unsqueeze(1) - sinks.unsqueeze(0)
-
-        # [n, 3]
-        delta_source = points - source.unsqueeze(0)
-
-        # [n, s]
-        r = torch.sqrt(delta_sinks[:, :, 0] ** 2 + delta_sinks[:, :, 1] ** 2)
-        angle = torch.arctan2(r, -delta_sinks[:, :, 2])
-
-        # [n, s]
-        range = torch.linalg.norm(delta_sinks, axis=-1) + torch.linalg.norm(delta_source, axis=-1).unsqueeze(1)
-        rtt = range / config.c
-
-        # [n, s]
-        d_interp = (rtt - signal_t[0]) / config.Ts
-        d_i = torch.floor(d_interp).to(torch.int64)
-        d_i_plus_1 = d_i + 1
-        d_a = d_interp - d_i
-
-        # [n, s]
-        s_i = torch.arange(s, device=device).unsqueeze(0).repeat((n, 1))
-
-        # [n, s]
-        valid = (0 <= d_i) & (d_i_plus_1 < d) & (torch.abs(angle) < config.fov / 2)
-
-        # [v]
-        interp_pulse = (1 - d_a[valid]) * signals[s_i[valid], d_i[valid]] + d_a[valid] * signals[s_i[valid], d_i_plus_1[valid]]
-
         # [n, s]
         updates = torch.zeros((n, s), dtype=torch.complex128, device=device)
 
-        # [n, s]
-        updates[valid] = interp_pulse * torch.exp(2.0j * np.pi * config.chirp_fc * rtt[valid])
-        # updates *= range ** 4
+        for sink in range(s):
+            # [n, 3]
+            delta_sink = points - sinks[sink]
 
-        # [s, n]
-        updates = torch.transpose(updates, dim0=0, dim1=1)
+            # [n, 3]
+            delta_source = points - source.unsqueeze(0)
+
+            d_sink = torch.linalg.norm(delta_sink, axis=-1)
+            d_source = torch.linalg.norm(delta_source, axis=-1)
+
+            # [n]
+            radius = torch.sqrt(delta_sink[:, 0] ** 2 + delta_sink[:, 1] ** 2)
+            angle = torch.arctan(radius / -delta_sink[:, 2])
+
+            # [n]
+            r = torch.linalg.norm(delta_sink, axis=-1) + torch.linalg.norm(delta_source, axis=-1)
+            rtt = r / config.c
+
+            # [n]
+            d_interp = (rtt - signal_t[0]) / config.Ts
+            d_i = torch.floor(d_interp).to(torch.int64)
+            d_i_plus_1 = d_i + 1
+            d_a = d_interp - d_i
+
+            # [n]
+            valid = (0 <= d_i) & (d_i_plus_1 < d) # & (torch.abs(angle) < config.fov / 2)
+
+            # [v]
+            interp_pulse = (1 - d_a[valid]) * signals[sink, d_i[valid]] + d_a[valid] * signals[sink, d_i_plus_1[valid]]
+
+            # [n, s]
+            updates[valid, sink] = interp_pulse * torch.exp(2.0j * np.pi * config.chirp_fc * rtt[valid])
+            # updates[:, sink] *= (d_source ** 2) * (d_sink ** 2)
+            # updates[:, sink] *= (1 / torch.cos(angle))
+
+    # [s, n]
+    updates = torch.transpose(updates, dim0=0, dim1=1)
 
     updates = updates.cpu().numpy()
 
     return updates
 
+def get_sas_weights(points: np.array,
+                    sinks: np.array,
+                    source: np.array,
+                    signal_t: np.array,
+                    signals: np.array,
+                    config: Config) -> np.array:
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    with torch.no_grad():
+        points = torch.tensor(points).to(device)
+        sinks = torch.tensor(sinks).to(device)
+        source = torch.tensor(source).to(device)
+        signal_t = torch.tensor(signal_t).to(device)
+        signals = torch.tensor(signals, dtype=torch.complex128).to(device)
+
+        n = points.shape[0]
+        s = sinks.shape[0]
+        d = len(signal_t)
+
+        # [n, s]
+        weights = torch.zeros((n, s), dtype=torch.float64, device=device)
+
+        for sink in range(s):
+            # [n, 3]
+            delta_sink = points - sinks[sink]
+
+            # [n, 3]
+            delta_source = points - source.unsqueeze(0)
+
+            d_sink = torch.linalg.norm(delta_sink, axis=-1)
+            d_source = torch.linalg.norm(delta_source, axis=-1)
+
+            # [n]
+            radius = torch.sqrt(delta_sink[:, 0] ** 2 + delta_sink[:, 1] ** 2)
+            angle = torch.arctan(radius / -delta_sink[:, 2])
+
+            # [n]
+            r = torch.linalg.norm(delta_sink, axis=-1) + torch.linalg.norm(delta_source, axis=-1)
+            rtt = r / config.c
+
+            # [n]
+            d_interp = (rtt - signal_t[0]) / config.Ts
+            d_i = torch.floor(d_interp).to(torch.int64)
+            d_i_plus_1 = d_i + 1
+            d_a = d_interp - d_i
+
+            # [n]
+            valid = (0 <= d_i) & (d_i_plus_1 < d) # & (torch.abs(angle) < config.fov / 2)
+
+            # # [v]
+            # interp_pulse = (1 - d_a[valid]) * signals[sink, d_i[valid]] + d_a[valid] * signals[sink, d_i_plus_1[valid]]
+
+            # [n, s]
+            # weights[valid, sink] += 1
+            weights[valid, sink] += torch.cos(angle[valid]) / ((d_source ** 2) * (d_sink ** 2))
+            # updates[:, sink] *= (d_source ** 2) # * (d_sink ** 2)
+            # updates[:, sink] *= (1 / torch.cos(angle))
+
+    # [s, n]
+    weights = torch.transpose(weights, dim0=0, dim1=1)
+
+    weights = weights.cpu().numpy()
+
+    return weights

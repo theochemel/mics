@@ -25,7 +25,7 @@ def plot_map_slices(map, grid_z, extent):
     plt.show()
 
 
-def plot_map_slices_animated(map, extent):
+def plot_map_slices_animated(map, extent, traj):
     map_abs = np.abs(map)
 
     vmax = np.max(map_abs)
@@ -37,12 +37,16 @@ def plot_map_slices_animated(map, extent):
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
 
+    positions = np.array([pose.t for pose in traj.poses])
+
+    plt.plot(positions[:, 0], positions[:, 1])
 
     def animate(frame_i):
         img_display.set_data(map_abs[:, :, frame_i])
+        # plt.plot(positions[:, 0], positions[:, 1])
         return [img_display]
 
 
-    anim = matplotlib.animation.FuncAnimation(fig, animate, frames=map_abs.shape[-1], interval=1000, blit=True)
+    anim = matplotlib.animation.FuncAnimation(fig, animate, frames=map_abs.shape[-1], interval=500)
 
     plt.show()

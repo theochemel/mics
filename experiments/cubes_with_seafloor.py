@@ -31,7 +31,7 @@ if __name__ == "__main__":
         )
     ]
 
-    arr = RectangularArray(6, 6, 1e-2, UniformAngularDistribution())
+    arr = RectangularArray(10, 10, 1e-2, UniformAngularDistribution())
 
     sand_material = SimpleMaterial(
         absorption=0.9,
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     surfaces = [
         Surface(
             id=f"bottom",
-            pose=SE3.Rz(np.pi / 2) @ SE3.Trans(0, 0, -2),
+            pose=SE3.Trans(0, 0, -2),
             material=sand_material,
             mesh=o3d.io.read_triangle_mesh("assets/lines/lines.ply"),
         )
@@ -61,13 +61,13 @@ if __name__ == "__main__":
 
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
-            SE3.Trans(-0.5, 0.0, 0),
-            SE3.Trans(0.5, 0.0, 0),
-            SE3.Trans(0.5, 0.5, 0),
-            SE3.Trans(-0.5, 0.5, 0),
-            SE3.Trans(-0.5, -0.5, 0)
+            SE3.Trans(0.25, -0.5, 0),
+            SE3.Trans(-0.25, -0.25, 0),
+            SE3.Trans(0.25, 0, 0),
+            SE3.Trans(-0.25, 0.25, 0),
+            SE3.Trans(0.25, 0.5, 0),
         ],
-        max_velocity=0.2,
+        max_velocity=0.1,
         acceleration=100,
         dt=0.05
     )
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     print(f"Trajectory length: {len(trajectory.poses)}")
 
     T_tx = T_rx = 1e-6 # 1 MHz
-    code = Chirp(fc=50e3, bw=50e3, T_sample=T_tx, T_chirp=1e-3)
+    code = Chirp(fc=50e3, bw=50e3, T_sample=T_tx, T_chirp=2e-4)
 
     result = run_experiment(Path.cwd() / Path(args.o),
                             scene,
@@ -83,6 +83,6 @@ if __name__ == "__main__":
                             code,
                             T_tx,
                             T_rx,
-                            n_rays=10000,
+                            n_rays=100000,
                             array=arr,
                             visualize=False)

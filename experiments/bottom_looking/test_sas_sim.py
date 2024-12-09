@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 import matplotlib.animation
 from tqdm import tqdm
 
-from experiments.bottom_looking.signals import pulse_compress_signals
+from signals import pulse_compress_signals
 from grid import get_grid_points, get_grid_xy_extent
-from sas import get_sas_updates
+from sas import get_sas_updates, get_sas_weights
 from signals import demod_signal, chirp
 from config import Config
 from visualize import plot_map_slices_animated, plot_map_slices
@@ -18,7 +18,7 @@ from visualize import plot_map_slices_animated, plot_map_slices
 def main():
     config = Config()
 
-    with open("no-cubes.pkl", "rb") as f:
+    with open("lines-0_1ms-zigzag.pkl", "rb") as f:
         exp = pickle.load(f)
 
     traj = exp["trajectory"]
@@ -33,8 +33,9 @@ def main():
     grid_points = np.stack((grid_x.flatten(), grid_y.flatten(), grid_z.flatten()), axis=-1)
 
     map = np.zeros_like(grid_x, dtype=np.complex128)
+    map_weights = np.zeros_like(grid_x, dtype=np.float64)
 
-    for i in tqdm(range(len(rx_pattern))):
+    for i in tqdm(range(len(rx_pattern) - 1)):
         pose_i = i + 1
 
         pose = traj.poses[pose_i]
@@ -69,7 +70,7 @@ def main():
         # plt.show()
 
         pulses = pulse_compress_signals(signals, config)
-        pulses *= signal_t ** 4
+        # pulses *= signal_t ** 4
         # pulses *= 1e9
 
 
@@ -86,24 +87,32 @@ def main():
         updates = get_sas_updates(grid_points, current_array_positions, current_source_position, signal_t, pulses, config)
 
         updates = updates.reshape((updates.shape[0], grid_x.shape[0], grid_x.shape[1], grid_x.shape[2]))
-
         sum_updates = np.sum(updates, axis=0)
-
         map += sum_updates
+
+        weights = get_sas_weights(grid_points, current_array_positions, current_source_position, signal_t, pulses, config)
+        weights = weights.reshape((updates.shape[0], grid_x.shape[0], grid_x.shape[1], grid_x.shape[2]))
+        sum_weights = np.sum(weights, axis=0)
+        map_weights += sum_weights
 
         # plt.imshow(np.abs(sum_updates[:, :, 0]), extent=grid_xy_extent)
         # plt.show()
         # plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
         # plt.show()
 
-        if i % 30 == 0:
-            plot_map_slices(map, grid_z, grid_xy_extent)
+        # if i % 30 == 0:
+        #     plot_map_slices(map, grid_z, grid_xy_extent)
 
     # plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
     # plt.imshow(np.log(np.abs(map[:, :, 0])), cmap='viridis', aspect='equal')
     # plt.scatter(current_array_positions[:, 0], current_array_positions[:, 1])
     # plt.show()
 
+    with open("lines-0_1ms-zigzag-map.pkl", "wb") as f:
+        pickle.dump(
+            { "grid_x": grid_x, "grid_y": grid_y, "grid_z": grid_z, "map": map, "map_weights": map_weights },
+            f
+        )
 
 
 if __name__ == "__main__":
