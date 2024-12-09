@@ -2,3 +2,8 @@
 .idea/
 *.pyc
 __pycache__/
+*.pkl
+*.blend
+*.blend1
+.DS_Store
+plots
