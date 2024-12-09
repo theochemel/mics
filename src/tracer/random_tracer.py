@@ -249,6 +249,7 @@ class Tracer:
         incident_directions_world = valid_rays[:, 3:]
 
         local_x = incident_directions_world - (np.sum(incident_directions_world * normals, axis=-1)[:, np.newaxis] * normals)
+        local_x = local_x / np.linalg.norm(local_x, axis=-1)[:, np.newaxis]
         local_z = normals
         local_y = np.cross(local_z, local_x, axis=-1)
 
@@ -267,7 +268,7 @@ class Tracer:
         new_rays = self._generate_scatter_rays(world_t_locals, incident_az_el, self._scattering_distribution)
 
         hit_attenuations = self._material_attenuation + power_to_db(
-            np.sum(
+            np.abs(np.sum(
                 incident_directions_local *
                 np.repeat(
                     np.array([[0.0, 0.0, 1.0]]),
@@ -275,7 +276,7 @@ class Tracer:
                     axis=0
                 ),
                 axis=-1
-            )
+            ))
         )
 
         # Move start point along ray to prevent intersection with same surface
@@ -322,7 +323,7 @@ class Tracer:
             self._paths[ray_path_id].add_segment(
                 delay=np.linalg.norm(start_position - end_position) / self._c,
                 hit_position=end_position,
-                hit_attenuation=hit_attenuations[ray_id],
+                hit_attenuation=hit_attenuations[ray_id] + amplitude_to_db(1 / (np.linalg.norm(end_position - start_position) ** 2)),
                 sink_visible=visible,
                 sink_positions=sink_positions,
                 sink_delays=sink_distances / self._c,

@@ -34,11 +34,11 @@ class Config:
     def max_rt_t(self) -> float:
         return (2 * self.max_range) / self.c
 
-    grid_size_xy = 200
+    grid_size_xy = 512
     grid_size_z = 1
 
-    grid_resolution_xy = 5e-2
-    grid_resolution_z = 2e-1
+    grid_resolution_xy = 0.5 * (1500 / 50e3)
+    grid_resolution_z = 0.5 * (1500 / 50e3)
 
     grid_min_z = 0
 

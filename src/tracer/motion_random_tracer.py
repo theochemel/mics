@@ -39,6 +39,7 @@ class MotionTracer:
         rx_pattern = []
 
         for idx in tqdm(range(1, len(traj.poses))):
+        # for idx in tqdm(range(1, 3)):
             pose = traj.poses[idx]
             timestamp = traj.time[idx]
 
@@ -122,7 +123,7 @@ class MotionTracer:
                 sink_attenuations = path_attenuations[:, sink]
                 sink_delays = path_delays[:, sink]
 
-                t_rx = cp.repeat(cp.arange(0, t_tx[-1], T_rx)[cp.newaxis], repeats=len(sink_delays), axis=0) + (sink_delays % T_rx)[:, cp.newaxis]
+                t_rx = cp.repeat(cp.arange(0, t_tx[-1], T_rx)[cp.newaxis], repeats=len(sink_delays), axis=0) - (sink_delays % T_rx)[:, cp.newaxis]
 
                 start_idx = cp.floor(sink_delays // T_rx).astype(int)
                 sink_signal = cp.interp(t_rx, t_tx, wave[source])
@@ -131,5 +132,14 @@ class MotionTracer:
 
                 for path in range(len(sink_attenuations)):
                     sinks_wave[sink, start_idx[path]:start_idx[path] + len(sink_signal[path])] += attenuated_signal[path]
+
+        # plt.plot(T_tx * np.arange(len(wave[0])), wave[0])
+        # plt.show()
+        #
+        # for i, sink_wave in enumerate(sinks_wave):
+        #     plt.plot(T_rx * np.arange(len(sink_wave)), sink_wave, label=i, marker="o")
+        #     plt.axvline(x=delays[0][0, i], c="r")
+        #     plt.axvline(x=delays[0][0, i] + 1e-5, c="g")
+        #     plt.show()
 
         return sinks_wave

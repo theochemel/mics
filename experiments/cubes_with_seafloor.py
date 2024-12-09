@@ -36,7 +36,7 @@ if __name__ == "__main__":
         )
     ]
 
-    arr = RectangularArray(3, 3, 1e-2, UniformContinuousAngularDistribution(
+    arr = RectangularArray(6, 6, 1e-2, UniformContinuousAngularDistribution(
         min_az=-pi, max_az=pi, min_el=0, max_el=pi
     ))
 
@@ -53,12 +53,23 @@ if __name__ == "__main__":
 
     surfaces = [
         Surface(
-            id="cube",
-            pose=SE3.Trans(0, 0, 0),
+            id=f"cube-1-{x}",
+            pose=SE3.Trans(x, 3, 0),
             material=sand_material,
-            mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
+            mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
         )
+        # for x in np.linspace(-10, 10, 5)
+        for x in [0]
     ]
+    # ] + [
+    #     Surface(
+    #         id=f"cube-2-{x}",
+    #         pose=SE3.Trans(x, -1, 0),
+    #         material=sand_material,
+    #         mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
+    #     )
+    #     for x in np.linspace(-10, 10, 3)
+    # ]
 
     # for x in bottom_xx:
     #     for y in bottom_yy:
@@ -92,13 +103,13 @@ if __name__ == "__main__":
 
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
-            SE3.Trans(-0.5, -0.5, 0),
-            SE3.Trans(0.0, -0.5, 0),
+            SE3.Trans(-0.5, 0.0, 0),
+            SE3.Trans(0.5, 0.0, 0),
             # SE3.Trans(0.5, 0.5, 0),
             # SE3.Trans(-0.5, 0.5, 0),
             # SE3.Trans(-0.5, -0.5, 0)
         ],
-        max_velocity=0.1,
+        max_velocity=0.2,
         acceleration=100,
         dt=0.05
     )

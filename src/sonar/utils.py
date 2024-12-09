@@ -140,7 +140,7 @@ class Chirp:
         self._baseband_t = t
         envelope = cosine_envelope(t, 0, T_chirp)
 
-        self._baseband = envelope * np.cos(2.0 * np.pi * self._fc * t + 1.0 * np.pi * self._K * t ** 2)
+        self._baseband = envelope * np.cos(2.0 * np.pi * self._fc * t + 1.0 * np.pi * self._K * (t ** 2))
 
 
     @property
@@ -149,25 +149,25 @@ class Chirp:
 
     @property
     def carrier(self):
-        return self.fc
+        return self._fc
 
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from scipy.signal import correlate
 
-    chirp = Chirp(100e3, 50e3, 1e-6, 1e-3)
+    chirp = Chirp(37.5e3, 75e3, 1e-6, 1e-3)
 
-    plt.plot(chirp._baseband_t, chirp._baseband)
+    plt.plot(chirp._baseband)
     plt.show()
 
-    rx_t = chirp._T_sample * np.arange(10000)
-    rx_signal = np.zeros_like(rx_t)
-
-    rx_signal[2000:2000 + len(chirp._baseband)] += chirp._baseband
-
-    correlation = correlate(rx_signal, chirp.baseband, mode="same")
-
-    plt.plot(rx_t, correlation / np.max(correlation))
-    plt.plot(rx_t, np.sin(2 * pi * chirp._f_lo * rx_t))
-    plt.show()
+    # rx_t = chirp._T_sample * np.arange(10000)
+    # rx_signal = np.zeros_like(rx_t)
+    #
+    # rx_signal[2000:2000 + len(chirp._baseband)] += chirp._baseband
+    #
+    # correlation = correlate(rx_signal, chirp.baseband, mode="same")
+    #
+    # plt.plot(rx_t, correlation / np.max(correlation))
+    # plt.plot(rx_t, np.sin(2 * pi * chirp._f_lo * rx_t))
+    # plt.show()

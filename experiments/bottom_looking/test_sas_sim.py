@@ -18,7 +18,7 @@ from visualize import plot_map_slices_animated
 def main():
     config = Config()
 
-    with open("cubes-only.pkl", "rb") as f:
+    with open("no-cubes.pkl", "rb") as f:
         exp = pickle.load(f)
 
     traj = exp["trajectory"]
@@ -42,7 +42,7 @@ def main():
         current_array_positions = (array.positions + pose.t)#[4:5]
         current_source_position = source + pose.t
 
-        raw_signals = rx_pattern[i]#[4:5]
+        raw_signals = rx_pattern[i]
         signal_t = config.Ts * np.arange(raw_signals.shape[-1]) - config.chirp_duration / 2
 
         signals = demod_signal(signal_t, raw_signals, config)
@@ -69,6 +69,21 @@ def main():
         # plt.show()
 
         pulses = pulse_compress_signals(signals, config)
+        # pulses *= signal_t ** 4
+        # pulses *= 1e9
+
+        # fig, axs = plt.subplots(3, sharex=True)
+
+        # for signal in signals:
+        #     axs[0].plot(np.real(signal))
+        #
+        # for pulse in pulses:
+        #     axs[1].plot(np.abs(pulse))
+        #
+        # for pulse in pulses:
+        #     axs[2].plot(np.angle(pulse))
+        #
+        # plt.show()
 
         updates = get_sas_updates(grid_points, current_array_positions, current_source_position, signal_t, pulses, config)
 
@@ -78,9 +93,13 @@ def main():
 
         map += sum_updates
 
+        plt.imshow(np.abs(sum_updates[:, :, 0]), extent=grid_xy_extent)
+        plt.show()
+        plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
+        plt.show()
 
     plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
-    plt.imshow(np.log(np.abs(map[:, :, 0])), cmap='viridis', aspect='equal')
+    # plt.imshow(np.log(np.abs(map[:, :, 0])), cmap='viridis', aspect='equal')
     # plt.scatter(current_array_positions[:, 0], current_array_positions[:, 1])
     plt.show()
 

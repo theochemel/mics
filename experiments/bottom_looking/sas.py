@@ -63,7 +63,7 @@ def get_sas_updates(points: np.array,
 
         # [n, s]
         updates[valid] = interp_pulse * torch.exp(1.0j * np.pi * config.chirp_fc * rtt[valid])
-        updates *= range ** 2
+        # updates *= range ** 4
 
         # [s, n]
         updates = torch.transpose(updates, dim0=0, dim1=1)
