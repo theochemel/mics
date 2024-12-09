@@ -18,7 +18,7 @@ from visualize import plot_map_slices_animated
 def main():
     config = Config()
 
-    with open("no-cubes.pkl", "rb") as f:
+    with open("bottom-only.pkl", "rb") as f:
         exp = pickle.load(f)
 
     traj = exp["trajectory"]
@@ -100,12 +100,13 @@ def main():
         # plt.show()
 
     plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
-    # plt.imshow(np.log(np.abs(map[:, :, 0])), cmap='viridis', aspect='equal')
-    # plt.scatter(current_array_positions[:, 0], current_array_positions[:, 1])
-    plt.show()
+    traj_poses = np.array([p.t for p in traj.poses])
+    plt.scatter(traj_poses[:, 0], traj_poses[:, 1])
+
+    with open("sas-res.pkl", "wb") as f:
+        pickle.dump(map, f)
 
     plot_map_slices_animated(map, grid_xy_extent)
-
 
 if __name__ == "__main__":
     main()

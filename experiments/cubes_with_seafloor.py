@@ -45,55 +45,39 @@ if __name__ == "__main__":
     )
 
     bottom_tile_size = 2
-    bottom_nx = 5
-    botton_ny = 5
+    bottom_nx = 1
+    botton_ny = 1
 
     bottom_xx = np.arange(bottom_nx) * bottom_tile_size - (bottom_nx * bottom_tile_size / 2)
     bottom_yy = np.arange(botton_ny) * bottom_tile_size - (botton_ny * bottom_tile_size / 2)
 
-    surfaces = [
-        Surface(
-            id=f"cube-1-{x}",
-            pose=SE3.Trans(x, 3, 0),
-            material=sand_material,
-            mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
-        )
-        # for x in np.linspace(-10, 10, 5)
-        for x in [0]
-    ]
-    # ] + [
-    #     Surface(
-    #         id=f"cube-2-{x}",
-    #         pose=SE3.Trans(x, -1, 0),
-    #         material=sand_material,
-    #         mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
-    #     )
-    #     for x in np.linspace(-10, 10, 3)
-    # ]
+    surfaces = []
 
-    # for x in bottom_xx:
-    #     for y in bottom_yy:
-    #         surfaces.append(Surface(
-    #             id=f'bottom-{x}-{y}',
-    #             pose=SE3.Rt(SO3(), np.array([x, y, -3.0])),
-    #             material=sand_material,
-    #             mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply")
-    #         ))
-    #
-    if args.cubes:
-        cube_xx, cube_yy = bottom_xx, bottom_yy
-        cube_coords = np.stack(np.meshgrid(cube_xx, cube_yy), axis=2)
-
-        cube_coords += np.random.normal(loc=0, scale=0.6, size=cube_coords.shape)
-        cube_coords = cube_coords.reshape(-1, 2)
-
-        for x, y in cube_coords:
+    for x in bottom_xx:
+        for y in bottom_yy:
             surfaces.append(Surface(
-                id=f'cube-{x}-{y}',
-                pose=SE3.Rt(SO3(), np.array([x, y, 0])),
+                id=f'bottom-{x}-{y}',
+                pose=SE3.Rt(SO3(), np.array([x, y, -1.0])),
                 material=sand_material,
-                mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply")
+                mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply")
             ))
+
+    # surfaces = []
+    # if args.cubes:
+    #     cube_xx, cube_yy = bottom_xx, bottom_yy
+    #     cube_coords = np.stack(np.meshgrid(cube_xx, cube_yy), axis=2)
+    #     cube_coords = cube_coords[:2, :]
+    #
+    #     # cube_coords += np.random.normal(loc=0, scale=0.6, size=cube_coords.shape)
+    #     cube_coords = cube_coords.reshape(-1, 2)
+    #
+    #     for x, y in cube_coords:
+    #         surfaces.append(Surface(
+    #             id=f'cube-{x}-{y}',
+    #             pose=SE3.Rt(SO3(), np.array([x, y, 0])),
+    #             material=sand_material,
+    #             mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply")
+    #         ))
 
     scene = Scene(
         sources=sources,
@@ -103,8 +87,8 @@ if __name__ == "__main__":
 
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
-            SE3.Trans(-0.5, 0.0, 0),
-            SE3.Trans(0.5, 0.0, 0),
+            SE3.Trans(-0.5, -0.5, 0),
+            SE3.Trans(0.5, -0.5, 0),
             # SE3.Trans(0.5, 0.5, 0),
             # SE3.Trans(-0.5, 0.5, 0),
             # SE3.Trans(-0.5, -0.5, 0)
@@ -127,4 +111,4 @@ if __name__ == "__main__":
                             T_rx,
                             n_rays=10000,
                             array=arr,
-                            visualize=False)
+                            visualize=True)

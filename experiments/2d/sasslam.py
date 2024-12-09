@@ -93,7 +93,6 @@ def get_signal(position, signal_t, target_points):
 
     return signal * np.exp(-2.0j * np.pi * chirp_fc * signal_t)
 
-
 def pulse_compress(signal, signal_t):
     reference_signal_t = Ts * np.arange(int(chirp_duration / Ts)) - (chirp_duration / 2)
     reference_signal = reference_chirp(reference_signal_t)

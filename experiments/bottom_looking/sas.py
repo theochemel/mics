@@ -62,7 +62,7 @@ def get_sas_updates(points: np.array,
         updates = torch.zeros((n, s), dtype=torch.complex128, device=device)
 
         # [n, s]
-        updates[valid] = interp_pulse * torch.exp(1.0j * np.pi * config.chirp_fc * rtt[valid])
+        updates[valid] = interp_pulse * torch.exp(2.0j * np.pi * config.chirp_fc * rtt[valid])
         # updates *= range ** 4
 
         # [s, n]

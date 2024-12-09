@@ -24,6 +24,38 @@ def np_to_voxels(grid: np.ndarray):
                 voxel_grid.add_voxel(voxel)
     return voxel_grid
 
+def np_to_point_cloud(grid: np.ndarray):
+    # Create an empty point cloud
+    point_cloud = o3d.geometry.PointCloud()
+
+    # Lists to store points and colors
+    points = []
+    colors = []
+
+    # Normalize grid values for coloring (assuming grid values range from 0 to 1)
+    colormap = plt.get_cmap('viridis')
+
+    # Iterate through the grid
+    for z in range(grid.shape[2]):
+        for y in range(grid.shape[1]):
+            for x in range(grid.shape[0]):
+                value = grid[x, y, z]
+                if np.isnan(value):  # Skip NaN values
+                    continue
+
+                # Add point position
+                points.append([x, y, z])
+
+                # Map value to a color (e.g., colormap or grayscale)
+                color = colormap(value)[:3]
+                colors.append(color)
+
+    # Assign points and colors to the point cloud
+    point_cloud.points = o3d.utility.Vector3dVector(np.array(points))
+    point_cloud.colors = o3d.utility.Vector3dVector(np.array(colors))
+
+    return point_cloud
+
 
 def plot_slices_with_colormap(voxels,
                               coordinates,
@@ -143,7 +175,7 @@ if __name__ == "__main__":
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    with open('../../map.pkl', "rb") as f:
+    with open('sas-res.pkl', "rb") as f:
         map = pickle.load(f)
 
     map = np.abs(map)
@@ -155,14 +187,15 @@ if __name__ == "__main__":
     voxels = (voxels - min_val) / (max_val - min_val)
     x, y, z = np.indices(voxels.shape)
 
-    thresh = np.quantile(voxels, 0.95)
+    thresh = np.quantile(voxels, 0.995)
     voxels[voxels < thresh] = np.nan
 
 
-    voxel_grid = np_to_voxels(voxels)
+    # voxel_grid = np_to_voxels(voxels)
+    point_cloud = np_to_point_cloud(voxels)
 
     # Visualize
-    o3d.visualization.draw_geometries([voxel_grid])
+    o3d.visualization.draw_geometries([point_cloud])
     # Define colors based on the kdata values (e.g., grayscale)
     # colors = np.empty(voxels.shape + (4,), dtype=np.float32)
     # colors[..., 0] = voxels  # R channel
