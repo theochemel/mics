@@ -1,8 +1,13 @@
+from statistics import covariance
+
 import matplotlib
 import numpy as np
+import pickle
 import scipy as sp
 import matplotlib.pyplot as plt
 from spatialmath.pose3d import SE3
+from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import splu
 
 from motion.imu import IMU, IMUMeasurement
 from motion.linear_constant_acceleration_trajectory import LinearConstantAccelerationTrajectory
@@ -31,6 +36,8 @@ signal_t = Ts * np.arange(int(max_rt_t / Ts))
 grid_width = 10
 grid_height = 10
 grid_size = 1e-2
+
+max_visibility_range = 5
 
 """
 ACOUSTIC SIM
@@ -87,7 +94,12 @@ def get_signal(position, signal_t, target_points):
     signal = np.zeros_like(signal_t, dtype=np.complex128)
 
     for target_point in target_points:
-        target_rt_t = (2 * np.linalg.norm(target_point - position)) / C
+        target_range = np.linalg.norm(target_point - position)
+
+        if target_range > max_visibility_range:
+            continue
+
+        target_rt_t = (2 * target_range) / C
 
         signal += chirp(signal_t - target_rt_t)
 
@@ -150,8 +162,6 @@ def update_map(map, grid_pos, position, pulse,
 
     update = interp_pulse * np.exp((2.0j * np.pi * chirp_fc / C) * (2.0 * grid_range))
 
-    update /= np.max(update)
-
     map += update
 
     if visualize:
@@ -204,28 +214,42 @@ def compute_sample_roundtrip_t(sample_coords, poses):
 def build_prior_system(state, prior, cov):
     sqrt_inv_cov = np.linalg.inv(sp.linalg.sqrtm(cov))
     A = sqrt_inv_cov
-    b = -sqrt_inv_cov @ (state - prior)
+    b = sqrt_inv_cov @ (prior - state[0])
     return A, b
 
 
-def build_motion_system(accel, accel_cov, dt):
-
+def build_motion_system(state, accel, vel_cov, accel_cov, dt):
     N_poses = accel.shape[0]
     # State: x, y, v_x, v_y
     H = np.array([
-        [0, 0, 1/dt, 0],
-        [0, 0, 0, 1/dt]
+        [-1 / dt, 0, 0, 0, 1 / dt, 0, -1, 0],
+        [0, -1 / dt, 0, 0, 0, 1 / dt, 0, -1],
+        [0, 0, -1 / dt, 0, 0, 0, 1 / dt, 0],
+        [0, 0, 0, -1 / dt, 0, 0, 0, 1 / dt],
     ])
-    sqrt_inv_cov = np.linalg.inv(sp.linalg.sqrtm(accel_cov))
-    A_motion = sqrt_inv_cov @ H
 
-    A = np.zeros((N_poses * 2, N_poses * 4))
-    for j in range(0, N_poses):
-        t = j * 2
-        l = j * 4
-        A[t:t+2, l:l+4] = A_motion
+    sqrt_inv_vel_cov = np.linalg.inv(sp.linalg.sqrtm(vel_cov))
+    sqrt_inv_accel_cov = np.linalg.inv(sp.linalg.sqrtm(accel_cov))
 
-    b = (sqrt_inv_cov @ accel.T).T.reshape(-1)
+    sqrt_inv_cov = np.block([
+        [sqrt_inv_vel_cov, np.zeros((2, 2))],
+        [np.zeros((2, 2)), sqrt_inv_accel_cov],
+    ])
+
+    A = np.zeros(((N_poses - 1) * 4, N_poses * 4))
+    b = np.zeros(((N_poses - 1) * 4,))
+
+    for i in range(0, N_poses - 1):
+        t = i * 4
+
+        est_accel = (state[i + 1][2:4] - state[i][2:4]) / dt
+        est_vel = (state[i + 1][0:2] - state[i][0:2]) / dt
+        vel = state[i + 1][2:4]
+
+        A[t:t+4, t:t+8] = sqrt_inv_cov @ H
+
+        b[t:t+2] = sqrt_inv_vel_cov @ (vel - est_vel)
+        b[t+2:t+4] = sqrt_inv_accel_cov @ (accel[i + 1] - est_accel)
 
     return A, b
 
@@ -251,8 +275,10 @@ def build_phase_system(phase_error, sample_dir, sample_weights, phase_var):
 
 def build_linear_system(state,
                         pulses, map_sample_coords, map_samples, phase_var,
-                        accel, accel_cov, dt,
-                        prior, prior_cov):
+                        accel,
+                        vel_cov, accel_cov,
+                        prior, prior_cov,
+                        dt):
     # Dimensions
     N_poses = state.shape[0]
     N_samples = map_sample_coords.shape[0]
@@ -280,15 +306,15 @@ def build_linear_system(state,
     phase_error = wrap2pi(est_phase - sample_phases)
 
     # Measurement Jacobian
-    A = np.zeros((4 + N_poses * 2 + N_samples * N_poses, N_poses * 4))
+    A = np.zeros((N_poses * 4 + N_samples * N_poses, N_poses * 4))
     # A = np.zeros((N_poses * 2 + N_samples * N_poses, N_poses * 4))
 
-    b = np.empty((4 + N_poses * 2 + N_samples * N_poses))
+    b = np.empty((N_poses * 4 + N_samples * N_poses))
     # b = np.empty((N_poses * 2 + N_samples * N_poses))
 
-    A[:4, :4], b[:4] = build_prior_system(state[0], prior, prior_cov)
+    A[:4, :4], b[:4] = build_prior_system(state, prior, prior_cov)
 
-    A[4:N_poses*2+4, :], b[4:N_poses*2+4] = build_motion_system(accel, accel_cov, dt)
+    A[4:N_poses * 4, :], b[4:N_poses * 4] = build_motion_system(state, accel, vel_cov, accel_cov, dt)
     # A[:N_poses*2, :], b[:N_poses*2] = get_motion_whitened_jacobian(accel, accel_cov, dt)
 
     A[-N_poses*N_samples:, :], b[-N_poses*N_samples:] = build_phase_system(phase_error,
@@ -358,9 +384,11 @@ if __name__ == "__main__":
 
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
-            SE3.Trans(0.0, 0.0, 0.0),
-            SE3.Trans(1.0, 0.0, 0.0),
-            SE3.Trans(0.0, 1.0, 0.0),
+            SE3.Trans(4.5, 4.5, 0.0),
+            SE3.Trans(5.5, 4.5, 0.0),
+            SE3.Trans(5.5, 5.5, 0.0),
+            SE3.Trans(4.5, 5.5, 0.0),
+            SE3.Trans(4.5, 4.5, 0.0),
         ],
         max_velocity=0.1,
         acceleration=0.1,
@@ -369,13 +397,13 @@ if __name__ == "__main__":
 
     print(f"Trajectory length: {len(trajectory.poses)}")
 
-    imu_accel_white_sigma = 1e-4
-    imu_accel_walk_sigma = 1e-4
+    imu_accel_white_sigma = 1e-3
+    imu_accel_walk_sigma = 1e-5
     imu = IMU(
         acceleration_white_sigma=imu_accel_white_sigma,
         acceleration_walk_sigma=imu_accel_walk_sigma,
         orientation_white_sigma=1e-3,
-        orientation_walk_sigma=1e-6,
+        orientation_walk_sigma=1e-8,
     )
 
     imu_measurement = imu.measure(trajectory)
@@ -385,8 +413,8 @@ if __name__ == "__main__":
     target_points = make_forest_targets()
     grid_pos, map = initialize_map()
 
-    slam_start_pose_idx = 80
-    lag = 8
+    slam_start_pose_idx = 20
+    lag = 2
 
     gt_pose = np.array(trajectory.poses)[:, :2, 3]
     gt_vel = trajectory.velocity_world[:, :2]
@@ -396,7 +424,10 @@ if __name__ == "__main__":
     imu_accel_world[:, 0] = imu_accel_body[:, 0] * np.cos(yaw) - imu_accel_body[:, 1] * np.sin(yaw)
     imu_accel_world[:, 1] = imu_accel_body[:, 0] * np.sin(yaw) + imu_accel_body[:, 1] * np.cos(yaw)
     # IMU acceleration covariance
-    imu_accel_cov = np.eye(2) * imu_accel_white_sigma ** 2
+    imu_accel_cov = np.eye(2) * 1e-2 ** 2
+    vel_cov = np.eye(2) * 1e-3 ** 2 # TODO: Tune
+
+    phase_cov = 1e-3
 
     build_map_from_traj(map, grid_pos, gt_pose[:slam_start_pose_idx], target_points)
 
@@ -417,8 +448,7 @@ if __name__ == "__main__":
     err_x, err_y = np.meshgrid(np.flip(err_y), err_x, indexing='ij')
     err_offset = np.stack((err_x, err_y), axis=-1)
 
-    prior_cov = np.eye(4) * 0.002 ** 2
-    # noise = np.random.multivariate_normal(np.zeros((2,)), prior_cov)
+    prior_cov = np.eye(4) * 1e-12 ** 2
     prior = np.empty(4)
     prior[:2] = gt_pose[slam_start_pose_idx - lag] # + np.clip(noise, -odom_clip_val, odom_clip_val)
     prior[2:] = gt_vel[slam_start_pose_idx - lag]
@@ -428,12 +458,6 @@ if __name__ == "__main__":
     for i in range(lag):
         state[i, :2] = gt_pose[slam_start_pose_idx - lag + 1 + i]
         state[i, 2:] = gt_vel[slam_start_pose_idx - lag + 1 + i]
-
-    # Prepare pulses
-    pulses = np.empty((lag, signal_t.shape[0]), dtype=np.complex128)
-    for i in range(lag):
-        signal = get_signal(gt_pose[slam_start_pose_idx - lag + 1 + i], signal_t, target_points)
-        pulses[i] = pulse_compress(signal, signal_t)
 
     computed_trajectory = np.zeros((gt_pose.shape[0], 4))
     computed_trajectory[:slam_start_pose_idx] = (
@@ -446,6 +470,8 @@ if __name__ == "__main__":
         dead_reckon_traj[i] = propagate_state(dead_reckon_traj[i-1], imu_accel_world[i-1], dt)
     dr_pose = dead_reckon_traj[:, :2]
 
+    initial_map = map.copy()
+
     # SLAMMING
     for last_pose_i in range(slam_start_pose_idx, gt_pose.shape[0] - 1):
         first_pose_i = last_pose_i - lag + 1
@@ -453,15 +479,23 @@ if __name__ == "__main__":
         current_gt_poses = gt_pose[first_pose_i:last_pose_i + 1]  # for evaluation & sim only
         current_dr_poses = dr_pose[first_pose_i:last_pose_i + 1]  # for evaluation & sim only
 
+        # Prepare pulses
+        pulses = np.empty((lag, signal_t.shape[0]), dtype=np.complex128)
+        for i in range(lag):
+            signal = get_signal(current_gt_poses[i], signal_t, target_points)
+            pulses[i] = pulse_compress(signal, signal_t)
+
+        norm_map = map / np.max(np.abs(map))
+
         # Sample map
-        sample_idx = importance_sample(np.abs(map), 128)
+        sample_idx = importance_sample(np.abs(norm_map), 128)
         sample_coords = grid_pos[sample_idx[:, 1], sample_idx[:, 0]]
-        samples = map[sample_idx[:, 1], sample_idx[:, 0]]
+        samples = norm_map[sample_idx[:, 1], sample_idx[:, 0]]
 
         print()
         print(f"--- POSES {first_pose_i} - {last_pose_i} ---")
-        print("Prior covariance:")
-        print(prior_cov)
+        # print("Prior covariance:")
+        # print(prior_cov)
         print(f'Position error before opt: {np.linalg.norm(current_gt_poses - state[:, :2], axis=-1)}')
 
         n_iterations = 10
@@ -471,15 +505,21 @@ if __name__ == "__main__":
             A, b = build_linear_system(state,
                                        pulses,
                                        sample_coords, samples,
-                                       1e-12,
-                                             imu_accel_world[first_pose_i:last_pose_i+1], imu_accel_cov, dt,
-                                       prior, prior_cov)
+                                       phase_cov,
+                                       imu_accel_world[first_pose_i:last_pose_i+1], vel_cov, imu_accel_cov,
+                                       prior, prior_cov, dt)
 
-            delta = np.linalg.solve(A.T @ A, A.T @ b)
+            A = csr_matrix(A)
+
+            res = splu(A.T @ A, permc_spec="COLAMD")
+            delta = res.solve(A.T @ b)
 
             delta = delta.reshape((lag, 4))
             state += delta
             state_optimization_history[i + 1] = state
+
+        print(f"delta: {state_optimization_history[-1] - state_optimization_history[0]}")
+        print(f"final state: {state_optimization_history[-1]}")
 
         print(f'Position error after opt: {np.linalg.norm(current_gt_poses - state[:, :2], axis=-1)}')
         print(f'Dead-reckoned position error: {np.linalg.norm(current_gt_poses - current_dr_poses, axis=-1)}')
@@ -491,24 +531,17 @@ if __name__ == "__main__":
         update_map(map, grid_pos, state[0, :2], pulses[0], visualize=False)
         computed_trajectory[last_pose_i-lag+1] = state[0]
 
-        # Marginalize out first pose
-        prior = state[1]  # todo: this is hacky but should work well enough
-        prior_cov = np.linalg.inv(A.T @ A)[:4, :4]
+        # # Marginalize out first pose
+        prior = state[1]
+        # prior_cov = np.linalg.inv(A.T @ A)[4:8, 4:8]
+        # TODO: How to propagate prior covariance?
 
         # Add initial value for next pose
         next_state = propagate_state(state[-1], imu_accel_world[last_pose_i], dt)
-        state[:-1] = state[1:]
-        state[-1] = next_state
-
-        # Compute next pulse
-        # SIMULATION START
-        next_gt_pose = gt_pose[last_pose_i + 1]
-        signal = get_signal(next_gt_pose, signal_t, target_points)
-        pulses[:-1] = pulses[1:]
-        pulses[-1] = pulse_compress(signal, signal_t)
-        # SIMULATION END
-
-
+        state = np.concatenate((
+            state[1:],
+            next_state[np.newaxis],
+        ), axis=0)
 
     _, dead_reckon_map = initialize_map()
     _, gt_map = initialize_map()
@@ -519,4 +552,22 @@ if __name__ == "__main__":
     visualize_map(map, computed_trajectory[:, :2], target_points, ax=ax1)
     visualize_map(gt_map, gt_pose, target_points, ax=ax2)
     visualize_map(dead_reckon_map, dead_reckon_traj[:, :2], target_points, ax=ax3)
+
+    with open("res.pkl", "wb") as fp:
+        pickle.dump({
+            "map": map,
+            "gt_map": gt_map,
+            "dead_reckon_map": dead_reckon_map,
+            "trajectory": computed_trajectory,
+            "gt_pose": gt_pose,
+            "gt_vel": gt_vel,
+            "dead_reckon_traj": dead_reckon_traj,
+            "target_points": target_points,
+            "initial_map": initial_map,
+        }, fp)
+
+    ax1.set_title("SLAM")
+    ax2.set_title("Ground Truth")
+    ax3.set_title("Dead Reckon")
+
     plt.show()
