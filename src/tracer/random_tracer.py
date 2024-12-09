@@ -267,17 +267,18 @@ class Tracer:
 
         new_rays = self._generate_scatter_rays(world_t_locals, incident_az_el, self._scattering_distribution)
 
-        hit_attenuations = self._material_attenuation + power_to_db(
-            np.abs(np.sum(
-                incident_directions_local *
-                np.repeat(
-                    np.array([[0.0, 0.0, 1.0]]),
-                    incident_directions_local.shape[0],
-                    axis=0
-                ),
-                axis=-1
-            ))
-        )
+        # hit_attenuations = self._material_attenuation + power_to_db(
+        #     np.abs(np.sum(
+        #         incident_directions_local *
+        #         np.repeat(
+        #             np.array([[0.0, 0.0, 1.0]]),
+        #             incident_directions_local.shape[0],
+        #             axis=0
+        #         ),
+        #         axis=-1
+        #     ))
+        # )
+        hit_attenuations = np.zeros(valid_rays.shape[0])
 
         # Move start point along ray to prevent intersection with same surface
         new_rays[:, 0:3] += RAY_START_SHIFT * new_rays[:, 3:6]
@@ -303,14 +304,16 @@ class Tracer:
                 sink_directions,
             ), axis=-1)
 
-            sink_directions_incoming = -transform_vectors(np.linalg.inv(self._scene.sink_poses), sink_directions)
+            # sink_directions_incoming = -transform_vectors(np.linalg.inv(self._scene.sink_poses), sink_directions)
 
-            sink_az_el_outgoing = direction_to_az_el(sink_directions)
-            sink_az_el_incoming = direction_to_az_el(sink_directions_incoming)
+            # sink_az_el_outgoing = direction_to_az_el(sink_directions)
+            # sink_az_el_incoming = direction_to_az_el(sink_directions_incoming)
 
-            sink_attenuation_outgoing = self._scattering_distribution.attenuation_db(sink_az_el_outgoing[:, 0], sink_az_el_outgoing[:, 1], np.repeat(incident_az_el[ray_id][np.newaxis, :], sink_az_el_outgoing.shape[0], axis=0))
+            # sink_attenuation_outgoing = self._scattering_distribution.attenuation_db(sink_az_el_outgoing[:, 0], sink_az_el_outgoing[:, 1], np.repeat(incident_az_el[ray_id][np.newaxis, :], sink_az_el_outgoing.shape[0], axis=0))
+            sink_attenuation_outgoing = np.zeros_like(sink_distances)
             sink_attenuation_travel = amplitude_to_db(1 / (sink_distances ** 2))
-            sink_attenuation_incoming = np.array([sink.distribution.attenuation_db(sink_az_el_incoming[i, 0], sink_az_el_incoming[i, 1]) for i, sink in enumerate(self._scene.sinks)])
+            sink_attenuation_incoming = np.zeros_like(sink_distances)
+            # sink_attenuation_incoming = np.array([sink.distribution.attenuation_db(sink_az_el_incoming[i, 0], sink_az_el_incoming[i, 1]) for i, sink in enumerate(self._scene.sinks)])
 
             raycasts = self._raycast_scene.cast_rays(
                 o3d.core.Tensor(sink_rays, dtype=o3d.core.Dtype.Float32)
@@ -323,7 +326,7 @@ class Tracer:
             self._paths[ray_path_id].add_segment(
                 delay=np.linalg.norm(start_position - end_position) / self._c,
                 hit_position=end_position,
-                hit_attenuation=hit_attenuations[ray_id] + amplitude_to_db(1 / (np.linalg.norm(end_position - start_position) ** 2)),
+                hit_attenuation=hit_attenuations[ray_id], # + amplitude_to_db(1 / (np.linalg.norm(end_position - start_position) ** 2)),
                 sink_visible=visible,
                 sink_positions=sink_positions,
                 sink_delays=sink_distances / self._c,

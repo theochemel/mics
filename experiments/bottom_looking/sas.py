@@ -36,8 +36,8 @@ def get_sas_updates(points: np.array,
         delta_source = points - source.unsqueeze(0)
 
         # [n, s]
-        # r = torch.sqrt(delta[:, :, 0] ** 2 + delta[:, :, 1] ** 2)
-        # angle = torch.arctan2(r, -delta[:, :, 2])
+        r = torch.sqrt(delta_sinks[:, :, 0] ** 2 + delta_sinks[:, :, 1] ** 2)
+        angle = torch.arctan2(r, -delta_sinks[:, :, 2])
 
         # [n, s]
         range = torch.linalg.norm(delta_sinks, axis=-1) + torch.linalg.norm(delta_source, axis=-1).unsqueeze(1)
@@ -53,7 +53,7 @@ def get_sas_updates(points: np.array,
         s_i = torch.arange(s, device=device).unsqueeze(0).repeat((n, 1))
 
         # [n, s]
-        valid = (0 <= d_i) & (d_i_plus_1 < d)#  & (torch.abs(angle) < config.fov / 2)
+        valid = (0 <= d_i) & (d_i_plus_1 < d) & (torch.abs(angle) < config.fov / 2)
 
         # [v]
         interp_pulse = (1 - d_a[valid]) * signals[s_i[valid], d_i[valid]] + d_a[valid] * signals[s_i[valid], d_i_plus_1[valid]]
@@ -62,7 +62,7 @@ def get_sas_updates(points: np.array,
         updates = torch.zeros((n, s), dtype=torch.complex128, device=device)
 
         # [n, s]
-        updates[valid] = interp_pulse * torch.exp(1.0j * np.pi * config.chirp_fc * rtt[valid])
+        updates[valid] = interp_pulse * torch.exp(2.0j * np.pi * config.chirp_fc * rtt[valid])
         # updates *= range ** 4
 
         # [s, n]

@@ -6,7 +6,7 @@ from numpy import pi
 from spatialmath import SE3
 
 from tracer.geometry import amplitude_to_db, az_el_to_direction_grid, db_to_amplitude, direction_to_az_el
-from tracer.scene import Sink, ContinuousAngularDistribution, UniformContinuousAngularDistribution
+from tracer.scene import Sink, ContinuousAngularDistribution, UniformAngularDistribution
 
 
 class Array(ABC):
@@ -36,7 +36,7 @@ class RectangularArray(Array):
         t_y = t_y.flatten()
 
         self._positions = np.stack((
-            t_x, np.zeros_like(t_y), t_y,
+            t_x, t_y, np.zeros_like(t_x)
         ), axis=-1)
 
         self._ang_dist = ang_dist
@@ -168,9 +168,7 @@ if __name__ == "__main__":
     C = 1500
     l = C / f
 
-    array = RectangularArray(10, 5, l / 2, UniformContinuousAngularDistribution(
-        min_az=-pi, max_az=pi, min_el=0, max_el=pi
-    ))
+    array = RectangularArray(10, 5, l / 2, UniformAngularDistribution())
 
     beamformer = DASBeamformer(array, C)
 

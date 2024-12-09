@@ -6,13 +6,15 @@ import pickle
 from perlin_numpy import (
     generate_fractal_noise_2d
 )
+from PIL import Image
+
 
 np.random.seed(0)
 
 terrain_size_m = 10
-terrain_size_px = 32
+terrain_size_px = 256
 
-terrain_height_m = 0.01
+terrain_height_m = 1.0
 
 terrain_x = (terrain_size_m / terrain_size_px) * np.arange(terrain_size_px) - (terrain_size_m / 2)
 terrain_y = (terrain_size_m / terrain_size_px) * np.arange(terrain_size_px) - (terrain_size_m / 2)
@@ -20,7 +22,7 @@ terrain_y = (terrain_size_m / terrain_size_px) * np.arange(terrain_size_px) - (t
 terrain_y, terrain_x = np.meshgrid(terrain_y, terrain_x, indexing="ij")
 
 res = 4
-octaves = 3
+octaves = 6
 
 noise = generate_fractal_noise_2d((terrain_size_px, terrain_size_px), (res, res), octaves)
 
@@ -31,13 +33,16 @@ plt.pcolormesh(terrain_x, terrain_y, terrain_z)
 plt.colorbar()
 plt.show()
 
-fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-ax.plot_surface(terrain_x, terrain_y, terrain_z, cmap="viridis")
-plt.show()
+image = Image.fromarray(np.clip(255 * terrain_z, 0, 255).astype(np.uint8), mode="L")
+image.save("assets/terrain/terrain-4.png")
 
-with open("terrain.pkl", "wb") as fp:
-    pickle.dump({
-        "terrain_x": terrain_x,
-        "terrain_y": terrain_y,
-        "terrain_z": terrain_z,
-    }, fp)
+# fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+# ax.plot_surface(terrain_x, terrain_y, terrain_z, cmap="viridis")
+# plt.show()
+
+# with open("terrain.pkl", "wb") as fp:
+#     pickle.dump({
+#         "terrain_x": terrain_x,
+#         "terrain_y": terrain_y,
+#         "terrain_z": terrain_z,
+#     }, fp)

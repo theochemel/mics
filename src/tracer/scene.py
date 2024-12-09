@@ -46,33 +46,25 @@ class ContinuousAngularDistribution(ABC):
         return power_to_db(self.pdf(az, el) / self.pdf_max())
 
 
-class UniformContinuousAngularDistribution(ContinuousAngularDistribution):
-
-    def __init__(self, min_az: float, max_az: float, min_el: float, max_el: float):
-        self._min_az = min_az
-        self._max_az = max_az
-        self._min_el = min_el
-        self._max_el = max_el
-
-        self._area = (max_az - min_az) * (max_el - min_el)
+class UniformAngularDistribution(ContinuousAngularDistribution):
 
     def pdf(self, az: np.array, el: np.array) -> np.array:
-        return np.full_like(az, fill_value=1 / self._area)
+        return np.sin(el) / (4 * np.pi)
 
     def pdf_max(self) -> float:
-        return 1 / self._area
+        return 1 / (4 * np.pi)
 
     def cdf_az(self, az: np.array) -> np.array:
-        return np.clip((az - self._min_az) / (self._max_az - self._min_az), 0, 1)
+        return (az + np.pi) / (2 * np.pi)
 
     def cdf_el_given_az(self, el: np.array, az: np.array) -> np.array:
-        return np.clip((el - self._min_el) / (self._max_el - self._min_el), 0, 1)
+        return (1 - np.cos(el)) / 2
 
     def cdf_inv_az(self, p: np.array) -> np.array:
-        return (self._max_az - self._min_az) * p + self._min_az
+        return (2 * np.pi * p) - np.pi
 
     def cdf_inv_el_given_az(self, p: np.array, az: np.array) -> np.array:
-        return (self._max_el - self._min_el) * p + self._min_el
+        return np.arccos(1 - 2 * p)
 
 
 class BidirectionalReflectanceDistribution(ABC):

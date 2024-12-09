@@ -35,11 +35,11 @@ class Config:
         return (2 * self.max_range) / self.c
 
     grid_size_xy = 512
-    grid_size_z = 1
+    grid_size_z = 2
 
     grid_resolution_xy = 0.5 * (1500 / 50e3)
-    grid_resolution_z = 0.5 * (1500 / 50e3)
+    grid_resolution_z = 0.25
 
-    grid_min_z = 0
+    grid_min_z = -2
 
     fov: float = np.deg2rad(60)

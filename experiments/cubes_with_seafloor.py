@@ -8,7 +8,7 @@ from sonar.utils import BarkerCode, FMBarker, PMBarker, Chirp
 from motion.linear_constant_velocity_trajectory import LinearConstantVelocityTrajectory
 from tracer.run_experiment import run_experiment
 from pathlib import Path
-from tracer.scene import Source, UniformContinuousAngularDistribution, SimpleMaterial, Surface, Scene
+from tracer.scene import Source, UniformAngularDistribution, SimpleMaterial, Surface, Scene
 import open3d as o3d
 import argparse
 
@@ -27,73 +27,31 @@ if __name__ == "__main__":
         Source(
             id="source_1",
             pose=SE3(),
-            distribution=UniformContinuousAngularDistribution(
-                min_az=-pi,
-                max_az=pi,
-                min_el=0,
-                max_el=pi,
-            )
+            distribution=UniformAngularDistribution(),
         )
     ]
 
-    arr = RectangularArray(6, 6, 1e-2, UniformContinuousAngularDistribution(
-        min_az=-pi, max_az=pi, min_el=0, max_el=pi
-    ))
+    arr = RectangularArray(6, 6, 1e-2, UniformAngularDistribution())
 
     sand_material = SimpleMaterial(
         absorption=0.9,
     )
 
-    bottom_tile_size = 2
-    bottom_nx = 5
-    botton_ny = 5
-
-    bottom_xx = np.arange(bottom_nx) * bottom_tile_size - (bottom_nx * bottom_tile_size / 2)
-    bottom_yy = np.arange(botton_ny) * bottom_tile_size - (botton_ny * bottom_tile_size / 2)
+    # bottom_tile_size = 2
+    # bottom_nx = 5
+    # botton_ny = 5
+    #
+    # bottom_xx = np.arange(bottom_nx) * bottom_tile_size - (bottom_nx * bottom_tile_size / 2)
+    # bottom_yy = np.arange(botton_ny) * bottom_tile_size - (botton_ny * bottom_tile_size / 2)
 
     surfaces = [
         Surface(
-            id=f"cube-1-{x}",
-            pose=SE3.Trans(x, 3, 0),
+            id=f"bottom",
+            pose=SE3.Rz(np.pi / 2) @ SE3.Trans(0, 0, -2),
             material=sand_material,
-            mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
+            mesh=o3d.io.read_triangle_mesh("assets/lines/lines.ply"),
         )
-        # for x in np.linspace(-10, 10, 5)
-        for x in [0]
     ]
-    # ] + [
-    #     Surface(
-    #         id=f"cube-2-{x}",
-    #         pose=SE3.Trans(x, -1, 0),
-    #         material=sand_material,
-    #         mesh=o3d.io.read_triangle_mesh("assets/cube.ply"),
-    #     )
-    #     for x in np.linspace(-10, 10, 3)
-    # ]
-
-    # for x in bottom_xx:
-    #     for y in bottom_yy:
-    #         surfaces.append(Surface(
-    #             id=f'bottom-{x}-{y}',
-    #             pose=SE3.Rt(SO3(), np.array([x, y, -3.0])),
-    #             material=sand_material,
-    #             mesh=o3d.io.read_triangle_mesh("assets/lumpy_8x8.ply")
-    #         ))
-    #
-    if args.cubes:
-        cube_xx, cube_yy = bottom_xx, bottom_yy
-        cube_coords = np.stack(np.meshgrid(cube_xx, cube_yy), axis=2)
-
-        cube_coords += np.random.normal(loc=0, scale=0.6, size=cube_coords.shape)
-        cube_coords = cube_coords.reshape(-1, 2)
-
-        for x, y in cube_coords:
-            surfaces.append(Surface(
-                id=f'cube-{x}-{y}',
-                pose=SE3.Rt(SO3(), np.array([x, y, 0])),
-                material=sand_material,
-                mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply")
-            ))
 
     scene = Scene(
         sources=sources,
@@ -105,9 +63,9 @@ if __name__ == "__main__":
         keyposes=[
             SE3.Trans(-0.5, 0.0, 0),
             SE3.Trans(0.5, 0.0, 0),
-            # SE3.Trans(0.5, 0.5, 0),
-            # SE3.Trans(-0.5, 0.5, 0),
-            # SE3.Trans(-0.5, -0.5, 0)
+            SE3.Trans(0.5, 0.5, 0),
+            SE3.Trans(-0.5, 0.5, 0),
+            SE3.Trans(-0.5, -0.5, 0)
         ],
         max_velocity=0.2,
         acceleration=100,

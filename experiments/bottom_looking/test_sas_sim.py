@@ -11,7 +11,7 @@ from grid import get_grid_points, get_grid_xy_extent
 from sas import get_sas_updates
 from signals import demod_signal, chirp
 from config import Config
-from visualize import plot_map_slices_animated
+from visualize import plot_map_slices_animated, plot_map_slices
 
 
 
@@ -69,7 +69,7 @@ def main():
         # plt.show()
 
         pulses = pulse_compress_signals(signals, config)
-        # pulses *= signal_t ** 4
+        pulses *= signal_t ** 4
         # pulses *= 1e9
 
 
@@ -79,10 +79,7 @@ def main():
         # fig, axs = plt.subplots(3, sharex=True)
 
         # for pulse in pulses:
-        #     axs[1].plot(signal_t, np.abs(pulse))
-        #
-        # for pulse in pulses:
-        #     axs[2].plot(signal_t, np.angle(pulse))
+        #     plt.plot(1500 * (signal_t / 2), np.abs(pulse))
         #
         # plt.show()
 
@@ -99,12 +96,14 @@ def main():
         # plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
         # plt.show()
 
-    plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
+        if i % 30 == 0:
+            plot_map_slices(map, grid_z, grid_xy_extent)
+
+    # plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
     # plt.imshow(np.log(np.abs(map[:, :, 0])), cmap='viridis', aspect='equal')
     # plt.scatter(current_array_positions[:, 0], current_array_positions[:, 1])
-    plt.show()
+    # plt.show()
 
-    plot_map_slices_animated(map, grid_xy_extent)
 
 
 if __name__ == "__main__":
