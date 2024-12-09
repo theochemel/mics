@@ -72,16 +72,17 @@ def main():
         # pulses *= signal_t ** 4
         # pulses *= 1e9
 
-        # fig, axs = plt.subplots(3, sharex=True)
 
         # for signal in signals:
         #     axs[0].plot(np.real(signal))
         #
+        # fig, axs = plt.subplots(3, sharex=True)
+
         # for pulse in pulses:
-        #     axs[1].plot(np.abs(pulse))
+        #     axs[1].plot(signal_t, np.abs(pulse))
         #
         # for pulse in pulses:
-        #     axs[2].plot(np.angle(pulse))
+        #     axs[2].plot(signal_t, np.angle(pulse))
         #
         # plt.show()
 
@@ -93,10 +94,10 @@ def main():
 
         map += sum_updates
 
-        plt.imshow(np.abs(sum_updates[:, :, 0]), extent=grid_xy_extent)
-        plt.show()
-        plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
-        plt.show()
+        # plt.imshow(np.abs(sum_updates[:, :, 0]), extent=grid_xy_extent)
+        # plt.show()
+        # plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
+        # plt.show()
 
     plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
     # plt.imshow(np.log(np.abs(map[:, :, 0])), cmap='viridis', aspect='equal')
