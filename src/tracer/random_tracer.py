@@ -280,6 +280,9 @@ class Tracer:
         # )
         hit_attenuations = np.zeros(valid_rays.shape[0])
 
+        # accurate end positions for delay calculation
+        end_positions = np.copy(new_rays[:, 0:3])
+
         # Move start point along ray to prevent intersection with same surface
         new_rays[:, 0:3] += RAY_START_SHIFT * new_rays[:, 3:6]
 
@@ -291,7 +294,8 @@ class Tracer:
 
         for ray_id, ray_path_id in enumerate(new_ray_path_ids):
             start_position = valid_rays[ray_id, :3]
-            end_position = new_rays[ray_id, :3]
+            shifted_end_position = new_rays[ray_id, :3]
+            end_position = end_positions[ray_id]
 
             sink_positions = self._scene.sink_poses.t
 
@@ -325,7 +329,7 @@ class Tracer:
 
             self._paths[ray_path_id].add_segment(
                 delay=np.linalg.norm(start_position - end_position) / self._c,
-                hit_position=end_position,
+                hit_position=shifted_end_position,
                 hit_attenuation=hit_attenuations[ray_id], # + amplitude_to_db(1 / (np.linalg.norm(end_position - start_position) ** 2)),
                 sink_visible=visible,
                 sink_positions=sink_positions,
