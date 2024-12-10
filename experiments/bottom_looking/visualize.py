@@ -3,7 +3,7 @@ import matplotlib.animation
 import matplotlib.pyplot as plt
 
 
-def plot_map_slices(map, grid_z, extent):
+def plot_map_slices(map, grid_z, extent, poses=None):
     map_abs = np.abs(map)
 
     vmin = np.min(map_abs)
@@ -16,6 +16,8 @@ def plot_map_slices(map, grid_z, extent):
     for i, ax in enumerate(axes.flat):  # Flatten the 2D axes array for easy indexing
         if i < map_abs.shape[2]:  # Ensure we don't exceed the number of images
             ax.imshow(map_abs[:, :, i], cmap='viridis', extent=extent, vmin=vmin, vmax=vmax)  # Display the image
+            if poses is not None:
+                ax.scatter(poses[:, 0], poses[:, 1])
             ax.set_title(f"z = {grid_z[0, 0, i]}")  # Set a title for each subplot
         else:
             ax.axis("off")  # Hide empty subplots if any
@@ -50,3 +52,18 @@ def plot_map_slices_animated(map, extent, traj):
     anim = matplotlib.animation.FuncAnimation(fig, animate, frames=map_abs.shape[-1], interval=500)
 
     plt.show()
+
+
+if __name__ == '__main__':
+    import pickle as pkl
+
+    with open('lines-0_1ms-zigzag-map.pkl', 'rb') as f:
+        map = pkl.load(f)
+
+    grid_x, grid_y, grid_z = map['grid_x'], map['grid_y'], map['grid_z']
+    map_weights = map['map_weights']
+    map = map['map']
+
+    extent = [np.min(grid_x), np.max(grid_x), np.min(grid_y), np.max(grid_y)]
+
+    plot_map_slices(map, grid_z, extent)
