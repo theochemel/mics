@@ -18,7 +18,7 @@ from visualize import plot_map_slices_animated, plot_map_slices
 def main():
     config = Config()
 
-    with open("lines-0_1ms-zigzag.pkl", "rb") as f:
+    with open("single-cube.pkl", "rb") as f:
         exp = pickle.load(f)
 
     traj = exp["trajectory"]
@@ -35,19 +35,33 @@ def main():
     map = np.zeros_like(grid_x, dtype=np.complex128)
     map_weights = np.zeros_like(grid_x, dtype=np.float64)
 
-    for i in tqdm(range(len(rx_pattern) - 1)):
+    positions = np.array([pose.t for pose in traj.poses])
+
+    for i in tqdm(range(len(rx_pattern) )):
         pose_i = i + 1
 
         pose = traj.poses[pose_i]
 
-        current_array_positions = (array.positions + pose.t)#[4:5]
+        current_array_positions = (array.positions + pose.t)[1:2]
         current_source_position = source + pose.t
 
-        raw_signals = rx_pattern[i]
-        signal_t = config.Ts * np.arange(raw_signals.shape[-1]) - config.chirp_duration / 2
+        raw_signals = rx_pattern[i][1:2]
+        # unshifted_t = config.Ts * np.arange(raw_signals.shape[-1])
+        # plt.plot(unshifted_t, raw_signals[0])
+        # plt.show()
 
+        signal_t = config.Ts * np.arange(raw_signals.shape[-1])
         signals = demod_signal(signal_t, raw_signals, config)
 
+        signal_t_shifted = signal_t + config.chirp_duration / 2
+
+        for i in range(signals.shape[0]):
+            signals[i] = np.interp(signal_t_shifted, signal_t, signals[i])
+
+
+        # plt.plot(signal_t, np.real(signals[0]))
+        # plt.plot(signal_t, np.imag(signals[0]))
+        # plt.show()
         # tx_pattern_t = config.Ts * np.arange(len(tx_pattern.baseband))
 
         # plt.plot(tx_pattern_t, tx_pattern.baseband, label="real")
@@ -70,7 +84,10 @@ def main():
         # plt.show()
 
         pulses = pulse_compress_signals(signals, config)
-        # pulses *= signal_t ** 4
+        # plt.plot(signal_t, np.real(pulses[0]))
+        # plt.plot(signal_t, np.imag(pulses[0]))
+        # plt.show()
+        # # pulses *= signal_t ** 4
         # pulses *= 1e9
 
 
@@ -94,6 +111,10 @@ def main():
         weights = weights.reshape((updates.shape[0], grid_x.shape[0], grid_x.shape[1], grid_x.shape[2]))
         sum_weights = np.sum(weights, axis=0)
         map_weights += sum_weights
+
+        if not i % 10:
+            extent = [np.min(grid_x), np.max(grid_x), np.min(grid_y), np.max(grid_y)]
+            plot_map_slices(map, grid_z, extent, positions)
 
         # plt.imshow(np.abs(sum_updates[:, :, 0]), extent=grid_xy_extent)
         # plt.show()

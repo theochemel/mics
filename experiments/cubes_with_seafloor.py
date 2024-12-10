@@ -31,7 +31,7 @@ if __name__ == "__main__":
         )
     ]
 
-    arr = RectangularArray(10, 10, 1e-2, UniformAngularDistribution())
+    arr = RectangularArray(3, 1, 1e-2, UniformAngularDistribution())
 
     sand_material = SimpleMaterial(
         absorption=0.9,
