@@ -267,17 +267,6 @@ class Tracer:
 
         new_rays = self._generate_scatter_rays(world_t_locals, incident_az_el, self._scattering_distribution)
 
-        # hit_attenuations = self._material_attenuation + power_to_db(
-        #     np.abs(np.sum(
-        #         incident_directions_local *
-        #         np.repeat(
-        #             np.array([[0.0, 0.0, 1.0]]),
-        #             incident_directions_local.shape[0],
-        #             axis=0
-        #         ),
-        #         axis=-1
-        #     ))
-        # )
         hit_attenuations = np.zeros(valid_rays.shape[0])
 
         # accurate end positions for delay calculation
@@ -301,40 +290,17 @@ class Tracer:
 
             sink_directions = sink_positions - end_position[np.newaxis, :]
             sink_distances = np.linalg.norm(sink_directions, axis=-1)
-            sink_directions = sink_directions / sink_distances[:, np.newaxis]
 
-            sink_rays = np.concatenate((
-                np.repeat(end_position[np.newaxis, :], sink_directions.shape[0], axis=0),
-                sink_directions,
-            ), axis=-1)
-
-            # sink_directions_incoming = -transform_vectors(np.linalg.inv(self._scene.sink_poses), sink_directions)
-
-            # sink_az_el_outgoing = direction_to_az_el(sink_directions)
-            # sink_az_el_incoming = direction_to_az_el(sink_directions_incoming)
-
-            # sink_attenuation_outgoing = self._scattering_distribution.attenuation_db(sink_az_el_outgoing[:, 0], sink_az_el_outgoing[:, 1], np.repeat(incident_az_el[ray_id][np.newaxis, :], sink_az_el_outgoing.shape[0], axis=0))
-            sink_attenuation_outgoing = np.zeros_like(sink_distances)
             sink_attenuation_travel = amplitude_to_db(1 / (sink_distances ** 2))
-            sink_attenuation_incoming = np.zeros_like(sink_distances)
-            # sink_attenuation_incoming = np.array([sink.distribution.attenuation_db(sink_az_el_incoming[i, 0], sink_az_el_incoming[i, 1]) for i, sink in enumerate(self._scene.sinks)])
-
-            raycasts = self._raycast_scene.cast_rays(
-                o3d.core.Tensor(sink_rays, dtype=o3d.core.Dtype.Float32)
-            )
-
-            t_hit = raycasts["t_hit"].numpy()
-
-            visible = t_hit >= sink_distances
 
             self._paths[ray_path_id].add_segment(
                 delay=np.linalg.norm(start_position - end_position) / self._c,
                 hit_position=shifted_end_position,
-                hit_attenuation=hit_attenuations[ray_id], # + amplitude_to_db(1 / (np.linalg.norm(end_position - start_position) ** 2)),
-                sink_visible=visible,
+                hit_attenuation=hit_attenuations[ray_id],
+                sink_visible=np.ones_like(sink_attenuation_travel, dtype=bool),
                 sink_positions=sink_positions,
                 sink_delays=sink_distances / self._c,
-                sink_attenuations=np.where(visible, sink_attenuation_outgoing + sink_attenuation_travel + sink_attenuation_incoming, -np.inf),
+                sink_attenuations=sink_attenuation_travel,
             )
 
     def visualize(self):
