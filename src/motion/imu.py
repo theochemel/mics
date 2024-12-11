@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from motion.trajectory import Trajectory
+from util.config import Config
 
 
 @dataclass
@@ -23,6 +24,13 @@ class IMU:
         self._acceleration_walk_sigma = acceleration_walk_sigma
         self._orientation_white_sigma = orientation_white_sigma
         self._orientation_walk_sigma = orientation_walk_sigma
+
+    def __init__(self,
+                 config: Config):
+        self._acceleration_white_sigma = config.acceleration_white_sigma
+        self._acceleration_walk_sigma = config.acceleration_walk_sigma
+        self._orientation_white_sigma = config.orientation_white_sigma
+        self._orientation_walk_sigma = config.orientation_walk_sigma
 
     def measure(self, trajectory: Trajectory) -> IMUMeasurement:
         time = trajectory.time
@@ -49,6 +57,17 @@ class IMU:
         orientation_rpy += np.cumsum(orientation_walk_noise, axis=0) + orientation_white_noise
 
         return IMUMeasurement(time, acceleration_body, orientation_rpy)
+
+
+def get_world_accel_2d(measurement: IMUMeasurement):
+    accel_body = measurement.acceleration_body[:2]
+    th = measurement.orientation_rpy[2]
+    A = np.array([
+        [np.cos(th), -np.sin(th)],
+        [np.sin(th),  np.cos(th)]
+    ])
+    accel_world = A @ accel_body
+    return accel_world
 
 
 if __name__ == "__main__":
