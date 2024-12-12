@@ -64,7 +64,7 @@ def get_sas_updates(points: np.array,
 
             # [n, s]
             updates[valid, sink] = interp_pulse * torch.exp(2.0j * np.pi * config.chirp_fc * rtt[valid])
-            # updates[:, sink] *= (d_source ** 2) * (d_sink ** 2)
+            updates[:, sink] *= (d_source ** 2) * (d_sink ** 2)
             # updates[:, sink] *= (1 / torch.cos(angle))
 
     # [s, n]
@@ -125,11 +125,12 @@ def get_sas_weights(points: np.array,
             valid = (0 <= d_i) & (d_i_plus_1 < d) # & (torch.abs(angle) < config.fov / 2)
 
             # # [v]
-            # interp_pulse = (1 - d_a[valid]) * signals[sink, d_i[valid]] + d_a[valid] * signals[sink, d_i_plus_1[valid]]
+            interp_pulse = (1 - d_a[valid]) * signals[sink, d_i[valid]] + d_a[valid] * signals[sink, d_i_plus_1[valid]]
 
             # [n, s]
             # weights[valid, sink] += 1
-            weights[valid, sink] += torch.cos(angle[valid]) / ((d_source ** 2) * (d_sink ** 2))
+            weights[valid, sink] += torch.abs(interp_pulse)
+            weights[:, sink] *= (d_source ** 2) * (d_sink ** 2)
             # updates[:, sink] *= (d_source ** 2) # * (d_sink ** 2)
             # updates[:, sink] *= (1 / torch.cos(angle))
 

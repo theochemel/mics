@@ -72,30 +72,63 @@ def main():
 
     config = Config()
 
-    targets = np.array([
-        [2.0, 0.0, 0.0],
-    ])
+    t = 1e-6 * np.arange(int(1.5 * config.chirp_duration / 1e-6)) - (1.5 * config.chirp_duration / 2)
 
-    sinks = np.array([
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-    ])
+    s = chirp(t, config)
 
-    signal_t, raw_signals = get_demod_signals(sinks, targets, config)
+    s_bb = demod_signal(t, np.real(s), config)
 
-    plt.plot(signal_t, np.real(raw_signals[0]))
-    plt.plot(signal_t, np.imag(raw_signals[0]))
-    plt.plot(signal_t, np.real(raw_signals[1]))
-    plt.plot(signal_t, np.imag(raw_signals[1]))
+    s_pc = pulse_compress_signals(s_bb, config)
+
+    fig, axs = plt.subplots(nrows=1, ncols=3, figsize=(6, 2))
+
+    axs[0].plot(t, np.real(s))
+    axs[0].plot(t, np.imag(s))
+    axs[0].set_title("$s_{rx}(t)$")
+    axs[0].set_xticks([])
+    axs[0].set_yticks([])
+
+    axs[1].plot(t, np.real(s_bb[0]))
+    axs[1].plot(t, np.imag(s_bb[0]))
+    axs[1].set_title("$s_{bb}(t)$")
+    axs[1].set_xticks([])
+    axs[1].set_yticks([])
+
+    axs[2].plot(t, np.real(s_pc[0]))
+    axs[2].plot(t, np.imag(s_pc[0]))
+    axs[2].set_title("$s_{pc}(t)$")
+    axs[2].set_xticks([])
+    axs[2].set_yticks([])
+
+    fig.tight_layout()
+
+    plt.savefig("signals.svg")
+
     plt.show()
 
-    signals = pulse_compress_signals(raw_signals, config)
-
-    plt.plot(signal_t, np.real(signals[0]))
-    plt.plot(signal_t, np.imag(signals[0]))
-    plt.plot(signal_t, np.real(signals[1]))
-    plt.plot(signal_t, np.imag(signals[1]))
-    plt.show()
+    # targets = np.array([
+    #     [1.0, 0.0, 0.0],
+    # ])
+    #
+    # sinks = np.array([
+    #     [0.0, 0.0, 0.0],
+    # ])
+    #
+    # signal_t, raw_signals = get_demod_signals(sinks, targets, config)
+    #
+    # plt.plot(signal_t, np.real(raw_signals[0]))
+    # plt.plot(signal_t, np.imag(raw_signals[0]))
+    # plt.plot(signal_t, np.real(raw_signals[1]))
+    # plt.plot(signal_t, np.imag(raw_signals[1]))
+    # plt.show()
+    #
+    # signals = pulse_compress_signals(raw_signals, config)
+    #
+    # plt.plot(signal_t, np.real(signals[0]))
+    # plt.plot(signal_t, np.imag(signals[0]))
+    # plt.plot(signal_t, np.real(signals[1]))
+    # plt.plot(signal_t, np.imag(signals[1]))
+    # plt.show()
 
 
 if __name__ == "__main__":

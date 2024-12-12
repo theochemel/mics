@@ -18,7 +18,7 @@ from visualize import plot_map_slices_animated, plot_map_slices
 def main():
     config = Config()
 
-    with open("single-cube.pkl", "rb") as f:
+    with open("lines-strip.pkl", "rb") as f:
         exp = pickle.load(f)
 
     traj = exp["trajectory"]
@@ -37,15 +37,15 @@ def main():
 
     positions = np.array([pose.t for pose in traj.poses])
 
-    for i in tqdm(range(len(rx_pattern) )):
+    for i in tqdm(range(len(rx_pattern))):
         pose_i = i + 1
 
         pose = traj.poses[pose_i]
 
-        current_array_positions = (array.positions + pose.t)[1:2]
+        current_array_positions = (array.positions + pose.t)
         current_source_position = source + pose.t
 
-        raw_signals = rx_pattern[i][1:2]
+        raw_signals = rx_pattern[i]
         # unshifted_t = config.Ts * np.arange(raw_signals.shape[-1])
         # plt.plot(unshifted_t, raw_signals[0])
         # plt.show()
@@ -112,9 +112,9 @@ def main():
         sum_weights = np.sum(weights, axis=0)
         map_weights += sum_weights
 
-        if not i % 10:
-            extent = [np.min(grid_x), np.max(grid_x), np.min(grid_y), np.max(grid_y)]
-            plot_map_slices(map, grid_z, extent, positions)
+        # if not i % 10:
+        #     extent = [np.min(grid_x), np.max(grid_x), np.min(grid_y), np.max(grid_y)]
+        #     plot_map_slices(map, grid_z, extent, positions)
 
         # plt.imshow(np.abs(sum_updates[:, :, 0]), extent=grid_xy_extent)
         # plt.show()
@@ -124,12 +124,13 @@ def main():
         # if i % 30 == 0:
         #     plot_map_slices(map, grid_z, grid_xy_extent)
 
-    # plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
+    plt.imshow(np.abs(map[:, :, 0]), extent=grid_xy_extent)
+    plt.show()
     # plt.imshow(np.log(np.abs(map[:, :, 0])), cmap='viridis', aspect='equal')
     # plt.scatter(current_array_positions[:, 0], current_array_positions[:, 1])
     # plt.show()
 
-    with open("lines-0_1ms-zigzag-map.pkl", "wb") as f:
+    with open("lines-strip-map.pkl", "wb") as f:
         pickle.dump(
             { "grid_x": grid_x, "grid_y": grid_y, "grid_z": grid_z, "map": map, "map_weights": map_weights },
             f

@@ -22,7 +22,7 @@ class LinearConstantAccelerationTrajectory(Trajectory):
             distance = np.linalg.norm(pose_start.t - pose_end.t)
 
             vmax_reached = distance > (vmax ** 2) / a
-            t_acc = vmax / a
+            t_acc = vmax / a if vmax_reached else np.sqrt(distance / a)
             d_acc = 0.5 * a * t_acc ** 2
             t_const = (distance - 2 * d_acc) / vmax if vmax_reached else 0.0
 
@@ -63,7 +63,8 @@ class LinearConstantAccelerationTrajectory(Trajectory):
             direction = (pose_end.t - pose_start.t) / distance
 
             vmax_reached = distance > (vmax ** 2) / a
-            t_acc = vmax / a
+            t_acc = vmax / a if vmax_reached else np.sqrt(distance / a)
+            vm = a * t_acc
             d_acc = 0.5 * a * t_acc ** 2
             t_const = (distance - 2 * d_acc) / vmax if vmax_reached else 0.0
 
@@ -72,12 +73,12 @@ class LinearConstantAccelerationTrajectory(Trajectory):
                 v = a * t
                 acc = a
             elif t < t_const + t_acc:
-                d = 0.5 * a * t_acc ** 2 + vmax * (t - t_acc)
-                v = vmax
+                d = 0.5 * a * t_acc ** 2 + vm * (t - t_acc)
+                v = vm
                 acc = 0
             else:
-                d = 0.5 * a * t_acc ** 2 + vmax * t_const + vmax * (t - t_const - t_acc) - 0.5 * a * (t - t_const - t_acc) ** 2
-                v = vmax - a * (t - t_const - t_acc)
+                d = 0.5 * a * t_acc ** 2 + vm * t_const + vm * (t - t_const - t_acc) - 0.5 * a * (t - t_const - t_acc) ** 2
+                v = vm - a * (t - t_const - t_acc)
                 acc = -a
 
             delta = d / distance
@@ -155,11 +156,10 @@ if __name__ == "__main__":
 
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
-            SE3.Trans(0.0, 0.0, 0.0),
-            SE3.Trans(1.0, 0.0, 0.0),
-            SE3.Trans(0.0, 1.0, 0.0),
+            SE3.Trans(0.0, -0.5, 0.0),
+            SE3.Trans(0.0, 0.5, 0.0),
         ],
-        max_velocity=0.1,
+        max_velocity=0.4,
         acceleration=0.1,
         dt=0.05,
     )
