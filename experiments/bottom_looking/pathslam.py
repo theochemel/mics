@@ -16,7 +16,7 @@ window_size = 40
 
 config = Config()
 
-with open("GOOD-KINDA.pkl", "rb") as fp:
+with open("good.pkl", "rb") as fp:
     exp_res = pickle.load(fp)
 
 traj = exp_res["trajectory"]
@@ -39,15 +39,6 @@ for i in range(len(rx_pattern)):
     pulses = pulse_compress_signals(signals, config)
 
     pulse_rx_pattern.append(pulses)
-
-# imu = IMU(
-#     acceleration_white_sigma=1e-4,
-#     acceleration_walk_sigma=1e-3,
-#     orientation_white_sigma=1e-9,
-#     orientation_walk_sigma=1e-9,
-# )
-
-# imu_measurement = imu.measure(traj)
 
 t = traj.time
 dt = t[1] - t[0]
@@ -74,9 +65,6 @@ def measure_sharpness(img):
     f_transform = np.fft.fft2(img)
     f_shift = np.fft.fftshift(f_transform)
 
-    # plt.imshow(np.abs(f_shift))
-    # plt.show()
-
     y = np.arange(img.shape[0]) / (img.shape[0] - 1)
     x = np.arange(img.shape[1]) / (img.shape[1] - 1)
 
@@ -87,24 +75,15 @@ def measure_sharpness(img):
 
     highpass = 1 - np.exp(-(spread_x * (x - 0.5) ** 2 + spread_y * (y - 0.5) ** 2))
 
-    # plt.imshow(highpass)
-    # plt.show()
-
     sharpness = np.mean(np.abs(f_shift) * highpass)
 
     return sharpness
 
-    # magnitude_spectrum = np.abs(f_shift)
-    # return np.sum(magnitude_spectrum[magnitude_spectrum > np.mean(magnitude_spectrum)])
 
 def sharpness_opt_direct_v(p, v, window_i):
     window_v = np.concatenate((np.array([0]), np.cumsum(imu_accel_y[window_i:window_i + window_size - 1]))) * dt + v
 
-    # plt.plot(window_v)
-    # plt.plot(gt_v_y[window_i:window_i + window_size])
-    # plt.show()
-
-    v_errors = np.linspace(-1e-2, 1e-2, 10)
+    v_errors = np.linspace(-1e-1, 1e-1, 200)
     sharpnesses = []
 
     imgs = []
@@ -137,7 +116,6 @@ def sharpness_opt_direct_v(p, v, window_i):
 
         map *= 1e-9
 
-        # map /= weights
         img = np.transpose(np.abs(map[:, 0, :]))
         imgs.append(img)
 
@@ -146,14 +124,17 @@ def sharpness_opt_direct_v(p, v, window_i):
 
         sharpness = measure_sharpness(img)
 
-        # plt.imshow(img)
-        # plt.title(f"{v_error} - {sharpness}")
-        # plt.show()
-
         sharpnesses.append(sharpness)
 
     plt.plot(v_errors, sharpnesses)
     plt.show()
+
+    with open("sharpness-opt.pkl", "wb") as fp:
+        pickle.dump({
+            "imgs": imgs,
+            "sharpnesses": sharpnesses,
+            "v_errors": v_errors,
+        }, fp)
 
 
 def sharpness_opt_direct_p(p, v, window_i, map):
@@ -322,6 +303,7 @@ est_v_y = 0
 est_p_y = start_p_y
 est_v_y_history = []
 est_p_y_history = []
+est_b_y_history = []
 
 naive_v_y = 0
 naive_p_y = start_p_y
@@ -340,12 +322,10 @@ plt.plot(gt_v_y, label="gt")
 plt.legend()
 plt.show()
 
-plt.plot(naive_p_y_history, label="naive")
-plt.plot(gt_p_y, label="gt")
-plt.legend()
-plt.show()
-
-plt.show()
+# plt.plot(naive_p_y_history, label="naive")
+# plt.plot(gt_p_y, label="gt")
+# plt.legend()
+# plt.show()
 
 est_v_y = naive_v_y_history[0]
 est_p_y = naive_p_y_history[0]
@@ -354,11 +334,11 @@ est_b_y = 0
 n_v_iters = 50
 n_p_iters = 20
 
-alpha_v = 2e-2
+alpha_v = 3e-2
 beta_v = 1e-1
 
-alpha_b = 1e-2
-beta_b = 1e-5
+alpha_b = 2e-2
+beta_b = 1e-1
 gamma_b = 1e-2
 
 mu_v = 0.1
@@ -378,10 +358,11 @@ for window_i in tqdm(range(0, len(rx_pattern) - window_size)):
 
     est_v_y_history.append(est_v_y)
     est_p_y_history.append(est_p_y)
+    est_b_y_history.append(est_b_y)
 
     # Update estimated velocity by assuming constant velocity and optimizing over window
 
-    sharpness_opt_direct_v(est_p_y, est_v_y, window_i)
+    # sharpness_opt_direct_v(gt_p_y[window_i], gt_v_y[window_i], window_i)
 
     prior_est_p_y = est_p_y
     prior_est_v_y = est_v_y
@@ -414,31 +395,8 @@ for window_i in tqdm(range(0, len(rx_pattern) - window_size)):
         est_v_y += avg_grad_v
         est_b_y += avg_grad_b
 
-    # est_bias_y = alpha_bias * est_bias_y + (1 - alpha_bias) * (prior_est_v_y - est_v_y) / dt
-
-        # if len(est_p_y_history) >= 2:
-        #     est_v_y += gamma_v * ((est_p_y_history[-1] - est_p_y_history[-2]) / dt - est_v_y)
-
-    # TODO: Sharpness optimize est_p_y
-    # sharpness_opt_direct_p(est_p_y, est_v_y, window_i, map)
-
-
-    # avg_grad_p = 0
-    #
-    # # for i in range(n_p_iters):
-    # while window_i > 0 and avg_grad_p == 0 or np.abs(avg_grad_p) > 1e-8:
-    #     sharpness_grad, sharpness = sharpness_d_p(est_p_y, est_v_y, window_i, base_map, eps=1e-4)
-    #     grad = alpha_p * sharpness_grad + beta_p * (prior_est_p_y - est_p_y)
-    #     if avg_grad_p == 0:
-    #         avg_grad_p = grad
-    #     else:
-    #         avg_grad_p = mu_p * avg_grad_p + (1 - mu_p) * grad
-    #     print(f"i: {i}, est_p_y: {est_p_y}, grad: {avg_grad_p}, sharpness: {sharpness}")
-    #     est_p_y += grad
-
     if window_i == 0:
         # Add whole map
-
         window_v = np.concatenate((np.array([0]), np.cumsum(imu_accel_y[window_i:window_i + window_size - 1]))) * dt + est_v_y
         window_p = np.cumsum(window_v) * dt + est_p_y
 
@@ -472,19 +430,36 @@ for window_i in tqdm(range(0, len(rx_pattern) - window_size)):
     est_v_y += (imu_accel_y[window_i] - est_b_y) * dt
 
     img = np.transpose(np.abs(base_map[:, 0, :]))
-    plt.imshow(img)
-    plt.show()
 
-    plt.plot(est_v_y_history, label="est")
-    plt.plot(naive_v_y_history[:window_i], label="naive")
-    plt.plot(gt_v_y[:window_i], label="gt")
-    plt.legend()
-    plt.title("v")
-    plt.show()
+    if window_i % 50 == 0:
+        plt.plot(est_v_y_history, label="est")
+        plt.plot(naive_v_y_history[:window_i], label="naive")
+        plt.plot(gt_v_y[:window_i], label="gt")
+        plt.legend()
+        plt.title("v")
+        plt.show()
 
-    plt.plot(est_p_y_history, label="est")
-    plt.plot(naive_p_y_history[:window_i], label="naive")
-    plt.plot(gt_p_y[:window_i], label="gt")
-    plt.legend()
-    plt.title("p")
-    plt.show()
+    # plt.plot(est_p_y_history, label="est")
+    # plt.plot(naive_p_y_history[:window_i], label="naive")
+    # plt.plot(gt_p_y[:window_i], label="gt")
+    # plt.legend()
+    # plt.title("p")
+    # plt.show()
+
+img = np.transpose(np.abs(base_map[:, 0, :]))
+plt.imshow(img)
+plt.show()
+
+with open("results.pkl", "wb") as fp:
+    pickle.dump({
+        "img": img,
+        "est_p_y_history": est_p_y_history,
+        "est_v_y_history": est_v_y_history,
+        "est_b_y_history": est_b_y_history,
+        "naive_v_y_history": naive_v_y_history,
+        "naive_p_y_history": naive_p_y_history,
+        "imu_accel_y": imu_accel_y,
+        "imu_walk_noise_y": imu_walk_noise_y,
+        "gt_p_y": gt_p_y,
+        "gt_v_y": gt_v_y,
+    }, fp)

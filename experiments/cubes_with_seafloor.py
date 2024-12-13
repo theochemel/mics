@@ -51,18 +51,18 @@ if __name__ == "__main__":
             material=sand_material,
             mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
         ),
-        # Surface(
-        #     id=f"bottom2",
-        #     pose=SE3.Trans(0, -0.5, -1),
-        #     material=sand_material,
-        #     mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
-        # ),
-        # Surface(
-        #     id=f"bottom3",
-        #     pose=SE3.Trans(0, 0.5, -1),
-        #     material=sand_material,
-        #     mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
-        # ),
+        Surface(
+            id=f"bottom2",
+            pose=SE3.Trans(0, -0.3, -1),
+            material=sand_material,
+            mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
+        ),
+        Surface(
+            id=f"bottom3",
+            pose=SE3.Trans(0, 0.3, -1),
+            material=sand_material,
+            mesh=o3d.io.read_triangle_mesh("assets/cube_10cm.ply"),
+        ),
     ]
 
     scene = Scene(
@@ -73,16 +73,16 @@ if __name__ == "__main__":
 
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
-            SE3.Trans(0.0, -0.25, 0),
-            SE3.Trans(0.0, 0.25, 0),
+            SE3.Trans(0.0, -0.5, 0),
+            SE3.Trans(0.0, 0.5, 0),
             SE3.Trans(0.0, 0.0, 0),
-            SE3.Trans(0.0, 0.25, 0),
-            SE3.Trans(0.0, -0.25, 0),
-            SE3.Trans(0.0, 0.25, 0),
+            SE3.Trans(0.0, 0.5, 0),
+            SE3.Trans(0.0, -0.5, 0),
+            SE3.Trans(0.0, 0.5, 0),
         ],
         max_velocity=0.4,
         acceleration=1.0,
-        dt=0.01
+        dt=0.05
     )
 
     print(f"Trajectory length: {len(trajectory.poses)}")
