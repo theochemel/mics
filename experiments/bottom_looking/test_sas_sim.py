@@ -18,7 +18,7 @@ from visualize import plot_map_slices_animated, plot_map_slices
 def main():
     config = Config()
 
-    with open("lines-0_1ms-zigzag.pkl", "rb") as f:
+    with open("lines-3d-traj.pkl", "rb") as f:
         exp = pickle.load(f)
 
     traj = exp["trajectory"]

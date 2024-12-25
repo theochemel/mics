@@ -1,8 +1,8 @@
-from typing import Callable, Tuple
+from typing import Callable, Tuple, List
 
 import numpy as np
 
-from motion.imu import IMU
+from motion.imu import IMU, IMUMeasurement
 from motion.trajectory import Trajectory
 from util.config import Config
 from util.signals import modulated_chirp
@@ -30,14 +30,14 @@ class World:
         for target in self._targets:
             target_range = np.linalg.norm(target - pose)
 
-            if target_range > self._c.max_visibility_range:
+            if target_range > self._c.max_range:
                 continue
 
             target_rt_t = (2 * target_range) / self._c.C
 
             return_signal += signal_fn(signal_t - target_rt_t)
 
-        return return_signal
+        return return_signal # * np.exp(-2.0j * np.pi * self._c.chirp_fc * signal_t)
 
 
 def make_forest_targets(extent: Tuple[float, float, float, float], nx: int, ny: int, sigma: float = 0):
@@ -74,10 +74,13 @@ class Sim2d:
                  config: Config):
         self._world = world
         self._traj = trajectory
-        self._imu = IMU(config)
+        self._imu = IMU.from_config(config)
         self._c = config
 
-        self._signal_t = self._c.Ts * np.arange(int(self._c.max_range / self._c.Ts))
+        self._signal_t = self._c.Ts * np.arange(int(self._c.max_rt_t / self._c.Ts))
+
+    def get_imu_measurements(self) -> IMUMeasurement:
+        return self._imu.measure(self._traj)
 
     def get_signal_at_pose(self, pose_idx):
         pose2d = self._traj.poses[pose_idx].t[:2]

@@ -61,14 +61,19 @@ if __name__ == "__main__":
 
     trajectory = LinearConstantAccelerationTrajectory(
         keyposes=[
-            SE3.Trans(0.25, -0.5, 0),
-            SE3.Trans(-0.25, -0.25, 0),
-            SE3.Trans(0.25, 0, 0),
-            SE3.Trans(-0.25, 0.25, 0),
-            SE3.Trans(0.25, 0.5, 0),
+            SE3.Trans(-0.5, -0.5, 0),
+            SE3.Trans(0.5, -0.5, -1),
+            SE3.Trans(0.5, 0.5, 0),
+            SE3.Trans(-0.5, 0.5, -1),
+            SE3.Trans(-0.5, -0.5, 0),
+            SE3.Trans(-0.5, -0.5, -1),
+            SE3.Trans(0.5, -0.5, 0),
+            SE3.Trans(0.5, 0.5, -1),
+            SE3.Trans(-0.5, 0.5, 0),
+            SE3.Trans(-0.5, -0.5, -1),
         ],
         max_velocity=0.1,
-        acceleration=100,
+        acceleration=0.2,
         dt=0.05
     )
 
@@ -83,6 +88,6 @@ if __name__ == "__main__":
                             code,
                             T_tx,
                             T_rx,
-                            n_rays=100000,
+                            n_rays=1000,
                             array=arr,
-                            visualize=False)
+                            visualize=True)

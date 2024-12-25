@@ -358,15 +358,20 @@ def plot_phase_error(sample_coords, samples,
     plt.show()
 
 
-def visualize_map(map, traj=None, targets=None, ax=None):
+def visualize_map(map, traj=None, vel=None, targets=None, ax=None):
     grid_extent = [0, grid_width, 0, grid_height]
     if ax is None:
-        fig, ax = plt.subplot()
+        fig, ax = plt.subplots()
     ax.imshow(np.abs(map), extent=grid_extent)
     if targets is not None:
         ax.scatter(target_points[:, 0], target_points[:, 1], c="r", marker="x")
     if traj is not None:
-        ax.plot(traj[:, 0], traj[:, 1], linewidth=2)
+        if vel is not None:
+            scatter = ax.scatter(traj[:,0], traj[:,1], c=vel, s=1, cmap='plasma')
+            colorbar = plt.colorbar(scatter)
+            colorbar.set_label('Vel')
+        else:
+            ax.plot(traj[:, 0], traj[:, 1], linewidth=2)
     if ax is None:
         plt.suptitle("Map")
         plt.show()
@@ -413,7 +418,7 @@ if __name__ == "__main__":
     target_points = make_forest_targets()
     grid_pos, map = initialize_map()
 
-    slam_start_pose_idx = 20
+    slam_start_pose_idx = 3
     lag = 2
 
     gt_pose = np.array(trajectory.poses)[:, :2, 3]
@@ -471,6 +476,20 @@ if __name__ == "__main__":
     dr_pose = dead_reckon_traj[:, :2]
 
     initial_map = map.copy()
+
+    visualize_map(map, computed_trajectory[:, :2] )
+    plt.show()
+
+    _, dead_reckon_map = initialize_map()
+    _, gt_map = initialize_map()
+    build_map_from_traj(dead_reckon_map, grid_pos, gt_pose, target_points, est_traj=dead_reckon_traj[:, :2])
+    build_map_from_traj(gt_map, grid_pos, gt_pose, target_points)
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+    visualize_map(gt_map, gt_pose, vel=np.linalg.norm(gt_vel, axis=1))
+    plt.show()
+    visualize_map(dead_reckon_map, dead_reckon_traj[:, :2], vel=np.linalg.norm(dead_reckon_traj[:, 2:]))
+    plt.show()
 
     # SLAMMING
     for last_pose_i in range(slam_start_pose_idx, gt_pose.shape[0] - 1):

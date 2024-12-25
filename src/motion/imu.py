@@ -25,12 +25,15 @@ class IMU:
         self._orientation_white_sigma = orientation_white_sigma
         self._orientation_walk_sigma = orientation_walk_sigma
 
-    def __init__(self,
-                 config: Config):
-        self._acceleration_white_sigma = config.acceleration_white_sigma
-        self._acceleration_walk_sigma = config.acceleration_walk_sigma
-        self._orientation_white_sigma = config.orientation_white_sigma
-        self._orientation_walk_sigma = config.orientation_walk_sigma
+    @staticmethod
+    def from_config(config: Config):
+        return IMU(
+            config.acceleration_white_sigma,
+            config.acceleration_walk_sigma,
+            config.orientation_white_sigma,
+            config.orientation_walk_sigma,
+        )
+
 
     def measure(self, trajectory: Trajectory) -> IMUMeasurement:
         time = trajectory.time
@@ -59,9 +62,8 @@ class IMU:
         return IMUMeasurement(time, acceleration_body, orientation_rpy)
 
 
-def get_world_accel_2d(measurement: IMUMeasurement):
-    accel_body = measurement.acceleration_body[:2]
-    th = measurement.orientation_rpy[2]
+def get_world_accel_2d(accel_body, th):
+    accel_body = accel_body[:2]
     A = np.array([
         [np.cos(th), -np.sin(th)],
         [np.sin(th),  np.cos(th)]

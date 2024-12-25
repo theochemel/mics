@@ -18,7 +18,10 @@ class FixedLagSmoother:
                  init_pulses: np.ndarray,
                  init_accel: np.ndarray,
                  init_prior: np.ndarray,
-                 init_prior_cov: np.ndarray
+                 init_prior_cov: np.ndarray,
+                 lag: int,
+                 use_prior=True,
+                 use_motion=True
                  ):
 
         # SLAM Initialization
@@ -35,14 +38,25 @@ class FixedLagSmoother:
 
         # Constants
         self._imu_cov           = np.eye(2) * 1e-2 ** 2
-        self._pos_process_cov   = np.eye(2) * 1e-2 ** 2
-        self._vel_process_cov   = np.eye(2) * 1e-2 ** 2
+        self._pos_process_cov   = np.eye(2) * 1e-4 ** 2
+        self._vel_process_cov   = np.eye(2) * 1e-4 ** 2
         self._phase_var         = 1e-3
 
+        self._lag = lag
+        self._use_prior = use_prior
+        self._use_motion = use_motion
 
     @property
     def state(self):
         return self._state
+
+    @property
+    def pulses(self):
+        return self._pulses
+
+    @property
+    def prior(self):
+        return self._prior
 
     @staticmethod
     def importance_sample(img, n_samples):
@@ -57,12 +71,11 @@ class FixedLagSmoother:
 
         return np.stack((sample_x, sample_y), axis=-1)
 
-    @staticmethod
-    def compute_sample_roundtrip_t(sample_coords, poses):
+    def compute_sample_roundtrip_t(self, sample_coords, poses):
         sample_vec = sample_coords[np.newaxis, :] - poses[:, np.newaxis]
         sample_range = np.linalg.norm(sample_vec, axis=-1)
         sample_dir = sample_vec / sample_range[:, :, np.newaxis]  # N_poses x N_samples x 2
-        sample_rt_t = 2 * sample_range / C
+        sample_rt_t = 2 * sample_range / self._c.C
 
         return sample_rt_t, sample_dir
 
@@ -70,12 +83,12 @@ class FixedLagSmoother:
     def build_prior_system(state, prior, cov):
         sqrt_inv_cov = np.linalg.inv(sp.linalg.sqrtm(cov))
         A = sqrt_inv_cov
-        b = sqrt_inv_cov @ (prior - state[0])
-        return A, b
+        b = sqrt_inv_cov @ (state[0] - prior)
+        return A, -b
 
 
     @staticmethod
-    def build_motion_system(accel, accel_measurement_cov, vel_process_cov, pos_process_cov, dt):
+    def build_motion_system(state, accel, accel_measurement_cov, vel_process_cov, pos_process_cov, dt):
         # accel is (N_poses, 2)
 
         N_poses = accel.shape[0]
@@ -105,26 +118,33 @@ class FixedLagSmoother:
         A_pose_pair = np.concatenate((A_pos, A_vel), axis=0)  # 4 x 8
 
         A = np.zeros(((N_poses - 1) * 4, N_poses * 4))
-        b = np.zeros(N_poses * 4)
+        b = np.zeros((N_poses - 1) * 4)
+
+        x = state[:, :2]
+        v = state[:, 2:]
 
         for pose_idx in range(0, N_poses - 1):
             t = 4 * pose_idx
             l = 4 * pose_idx
             A[t:t+4, l:l+8] = A_pose_pair
 
-            b_pos = inv_sqrt_accel_pos_cov @ accel[pose_idx]
-            b_vel = inv_sqrt_accel_vel_cov @ accel[pose_idx]
+            exp_accel_pos = (- 2 * x[pose_idx] / dt**2
+                             + 2 * x[pose_idx+1] / dt**2
+                             - 2 * v[pose_idx] / dt)
+            exp_accel_vel = (- v[pose_idx] + v[pose_idx+1]) / dt
+
+            b_pos = inv_sqrt_accel_pos_cov @ (exp_accel_pos - accel[pose_idx])
+            b_vel = inv_sqrt_accel_vel_cov @ (exp_accel_vel - accel[pose_idx])
             b[t:t+4] = np.concatenate((b_pos, b_vel), axis=0)
 
-        return A, b
+        return A, -b
 
 
-    @staticmethod
-    def build_phase_system(phase_error, sample_dir, sample_weights, phase_var):
+    def build_phase_system(self, phase_error, sample_dir, sample_weights, phase_var):
 
         N_poses, N_samples = phase_error.shape
 
-        phase_grad = 2 * K * sample_dir # N_poses x N_samples x 2
+        phase_grad = 2 * self._c.K * sample_dir # N_poses x N_samples x 2
 
         sqrt_inv_var = 1 / np.sqrt(phase_var)
 
@@ -148,7 +168,7 @@ class FixedLagSmoother:
         N_samples = map_sample_coords.shape[0]
         assert state.shape[0] == accel.shape[0]
 
-        sample_rt_t, sample_dir = FixedLagSmoother.compute_sample_roundtrip_t(map_sample_coords, state[:, :2])  # N_poses x N_samples
+        sample_rt_t, sample_dir = self.compute_sample_roundtrip_t(map_sample_coords, state[:, :2])  # N_poses x N_samples
 
         # Pulse interpolation
         k = sample_rt_t / self._c.Ts
@@ -169,31 +189,47 @@ class FixedLagSmoother:
         est_phase = np.angle(update)
         phase_error = wrap2pi(est_phase - sample_phases)
 
+        prior_rows = 4 if self._use_prior else 0
+        motion_rows = (N_poses - 1) * 4 if self._use_motion else 0
+        phase_rows = N_poses * N_samples
+
+        rows = prior_rows + motion_rows + phase_rows
+
+        prior_A, prior_b = FixedLagSmoother.build_prior_system(state, self._prior, self._prior_cov)
+        motion_A, motion_b = FixedLagSmoother.build_motion_system(state,
+                                                                  accel,
+                                                                  self._imu_cov,
+                                                                  self._vel_process_cov,
+                                                                  self._pos_process_cov,
+                                                                  dt)
+        phase_A, phase_b = self.build_phase_system(phase_error,
+                                                    sample_dir,
+                                                    sample_weights,
+                                                    self._phase_var)
+
         # Measurement Jacobian
-        A = np.zeros((N_poses * 4 + N_samples * N_poses, N_poses * 4))
-        # A = np.zeros((N_poses * 2 + N_samples * N_poses, N_poses * 4))
+        A = []
+        b = []
 
-        b = np.empty((N_poses * 4 + N_samples * N_poses))
-        # b = np.empty((N_poses * 2 + N_samples * N_poses))
+        if self._use_prior:
+            A.append(np.concatenate((prior_A, np.zeros((4, N_poses * 4 - 4))), axis=1))
+            b.append(prior_b)
 
-        A[:4, :4], b[:4] = FixedLagSmoother.build_prior_system(state, self._prior, self._prior_cov)
+        if self._use_motion:
+            A.append(motion_A)
+            b.append(motion_b)
 
-        A[4:N_poses * 4, :], b[4:N_poses * 4] = FixedLagSmoother.build_motion_system(accel,
-                                                                                     self._imu_cov,
-                                                                                     self._vel_process_cov,
-                                                                                     self._pos_process_cov,
-                                                                                     dt)
+        A.append(phase_A)
+        b.append(phase_b)
 
-        A[-N_poses*N_samples:, :], b[-N_poses*N_samples:] = FixedLagSmoother.build_phase_system(phase_error,
-                                                                                                sample_dir,
-                                                                                                sample_weights,
-                                                                                                self._phase_var)
+        A = np.concatenate(A, axis=0)
+        b = np.concatenate(b, axis=0)
 
         return A, b
 
     def marginalize_and_advance(self, pulse: np.ndarray, accel_measurement: np.ndarray, dt) -> None:
         # marginalize
-        self._prior = self._state[1]
+        self._prior = np.copy(self._state[1])
 
         # advance acceleration
         self._accel[:-1] = self._accel[1:]
@@ -222,6 +258,8 @@ class FixedLagSmoother:
         samples = norm_map[sample_idx[:, 1], sample_idx[:, 0]]
 
         n_iterations = 10
+        state_opt_traj = np.empty((n_iterations + 1,) + self._state.shape)
+        state_opt_traj[0] = self._state
         for i in range(n_iterations):
             A, b = self.build_linear_system(sample_coords, samples, dt)
 
@@ -233,4 +271,9 @@ class FixedLagSmoother:
             delta = delta.reshape((self._lag, 4))
             self._state += delta
 
+            state_opt_traj[i + 1] = self._state
+
+        print(f"Updating map from {self._state[0, :2]}")
         self._sas.update_map(self._state[0, :2], self._pulses[0])
+
+        return sample_coords, samples, state_opt_traj
